@@ -47,13 +47,15 @@ test('layout flows long races across pages and stays deterministic', async () =>
   }
 });
 
-test('untitled races and questions block printing', async () => {
+test('untitled elections, races, and questions block printing', async () => {
   const { readyToPrint, addQuestion: addQ } = await import('../js/model/election.js');
-  const e = newElection('T');
-  const r = addRace(e); // no title
+  const e = newElection(); // no election title
+  const r = addRace(e); // no race title
   r.candidates = ['A', 'B'];
   assert.equal(readyToPrint(e), false);
   r.title = 'Chair';
+  assert.equal(readyToPrint(e), false, 'election title still missing');
+  e.title = 'Spring Vote';
   assert.equal(readyToPrint(e), true);
   const q = addQ(e);
   assert.equal(readyToPrint(e), false);

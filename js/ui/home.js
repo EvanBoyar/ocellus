@@ -28,13 +28,14 @@ export function renderHome(root) {
   for (const entry of entries) {
     const races = entry.election.races.length;
     const questions = entry.election.questions.length;
+    const displayTitle = entry.election.title.trim() || 'Untitled election';
     const bits = [];
     if (races) bits.push(races + (races === 1 ? ' race' : ' races'));
     if (questions) bits.push(questions + (questions === 1 ? ' question' : ' questions'));
     root.append(el('div', { class: 'card' },
       el('div', { class: 'row space' },
         el('div', { class: 'grow' },
-          el('h3', {}, entry.election.title),
+          el('h3', {}, displayTitle),
           el('div', { class: 'meta' },
             (bits.join(', ') || 'empty') + ' - ID ' + groupCode(entry.eid || ''),
           ),
@@ -43,7 +44,7 @@ export function renderHome(root) {
         el('button', {
           class: 'btn-quiet btn-small',
           onclick: () => {
-            if (confirm('Delete "' + entry.election.title + '" and its scan data? This cannot be undone.')) {
+            if (confirm('Delete "' + displayTitle + '" and its scan data? This cannot be undone.')) {
               deleteEntry(entry.id);
               clear(root);
               renderHome(root);
@@ -58,7 +59,7 @@ export function renderHome(root) {
     class: 'btn-big',
     style: 'margin-top: 12px;',
     onclick: async () => {
-      const election = newElection('Untitled Election');
+      const election = newElection();
       const entry = { id: uid(), election, nextSerial: 1, createdAt: new Date().toISOString() };
       entry.eid = await electionId(election);
       saveEntry(entry);

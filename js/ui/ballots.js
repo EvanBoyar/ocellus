@@ -12,8 +12,8 @@ export async function renderBallots(root, ctx) {
 
   if (!readyToPrint(ctx.election)) {
     root.append(el('div', { class: 'notice warn' },
-      'The design is not ready to print yet. Every race and question needs a title, '
-      + 'and every race needs at least one named candidate.'));
+      'The design is not ready to print yet. The election, every race, and every question '
+      + 'need titles, and every race needs at least one named candidate.'));
     return;
   }
 
@@ -22,7 +22,11 @@ export async function renderBallots(root, ctx) {
     'Each ballot is ' + pages + (pages === 1 ? ' page' : ' pages')
     + ' with a unique code, so it can only be scanned once and only for this election.'));
 
-  const countInput = el('input', { type: 'number', min: '1', max: '500', value: '10' });
+  const DEFAULT_COUNT = 10;
+  const countInput = el('input', {
+    type: 'number', min: '1', max: '500',
+    placeholder: String(DEFAULT_COUNT),
+  });
   const status = el('div');
   const preview = el('div', { class: 'ballot-preview' });
 
@@ -37,7 +41,10 @@ export async function renderBallots(root, ctx) {
 
   const printBtn = el('button', { class: 'btn-big' }, 'Print ballots');
   printBtn.addEventListener('click', async () => {
-    const count = Math.max(1, Math.min(500, Number(countInput.value) || 0));
+    const raw = countInput.value.trim();
+    const count = raw === ''
+      ? DEFAULT_COUNT
+      : Math.max(1, Math.min(500, Number(raw) || 1));
     printBtn.disabled = true;
     printBtn.textContent = 'Preparing ' + count + ' ballots...';
     try {
@@ -67,7 +74,7 @@ export async function renderBallots(root, ctx) {
   root.append(
     el('div', { class: 'card' },
       el('label', { class: 'field' },
-        el('span', {}, 'How many ballots to print'),
+        el('span', {}, 'How many ballots to print (' + DEFAULT_COUNT + ' if left blank)'),
         countInput,
       ),
       el('p', { class: 'meta' },

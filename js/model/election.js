@@ -20,10 +20,13 @@ import { randomBytes, shortHash } from './crypt.js';
 
 export const MAX_SCORE = 5;
 
+// Like races and questions, elections start untitled; the design
+// screen focuses the empty field and printing is gated until it has
+// a real name.
 export function newElection(title) {
   return {
     v: 1,
-    title: title || 'Untitled Election',
+    title: title || '',
     key: bytesToBase64(randomBytes(16)),
     paper: 'letter',
     races: [],
@@ -110,6 +113,7 @@ export function validateElection(e) {
 // candidates.
 export function readyToPrint(e) {
   if (validateElection(e)) return false;
+  if (e.title.trim().length === 0) return false;
   return e.races.every((r) => r.title.trim().length > 0
       && r.candidates.length >= 1
       && r.candidates.every((c) => c.trim().length > 0))

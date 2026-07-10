@@ -45,13 +45,20 @@ export async function renderDesign(root, ctx) {
       + '. Any design change creates a new election ID, and existing printed ballots will no longer verify.'));
   }
 
+  const titleInput = el('input', {
+    type: 'text', value: e.title,
+    placeholder: 'Election title (e.g. Spring Board Election)',
+    oninput: (ev) => { e.title = ev.target.value; persist(); },
+  });
   root.append(el('label', { class: 'field' },
     el('span', {}, 'Election title (printed on every ballot)'),
-    el('input', {
-      type: 'text', value: e.title,
-      oninput: (ev) => { e.title = ev.target.value; persist(); },
-    }),
+    titleInput,
   ));
+  // A brand new election lands here with no title; put the cursor
+  // where the first keystroke belongs.
+  if (e.title.trim() === '') {
+    setTimeout(() => titleInput.focus(), 0);
+  }
 
   root.append(el('label', { class: 'field' },
     el('span', {}, 'Paper size'),
