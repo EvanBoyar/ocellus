@@ -12,6 +12,8 @@ A STAR voting ballot generator, scanner, and tabulator for small clubs and organ
 
 ## Running it
 
+The app is live at https://evanboyar.github.io/ocellus/ and installs as a PWA from there.
+
 It is a static web app with no build step. Serve the directory over HTTP and open it:
 
 ```
