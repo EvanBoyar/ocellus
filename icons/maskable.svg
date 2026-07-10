@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 680" role="img">
   <title>Ocellus sea star icon</title>
   <desc>A coral five-armed sea star with a golden eye at each arm tip, on a deep teal rounded square.</desc>
-  <rect x="40" y="40" width="600" height="600" rx="136" fill="#0E5E66"/>
-  <rect x="40" y="40" width="600" height="600" rx="136" fill="none" stroke="#0A4A50" stroke-width="4"/>
-  <g transform="translate(340 340) scale(1.363) translate(-340 -340)">
+  <rect x="-20" y="-20" width="720" height="720" fill="#0E5E66"/>
+  
+  <g transform="translate(340 340) scale(1.34) translate(-340 -340)">
     <g id="arms">
       <path transform="rotate(0 340 340)" d="M286 372 C298 282 314 198 326 152 Q340 110 354 152 C366 198 382 282 394 372 Q340 410 286 372 Z" fill="#F4795B"/>
       <path transform="rotate(72 340 340)" d="M286 372 C298 282 314 198 326 152 Q340 110 354 152 C366 198 382 282 394 372 Q340 410 286 372 Z" fill="#F4795B"/>
