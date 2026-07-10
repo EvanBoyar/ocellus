@@ -7,7 +7,7 @@ import { ballotCode, candidateOrder, invertOrder } from '../js/model/ballotid.js
 import { layoutPages } from '../js/model/layout.js';
 import { computeHomography, applyH, invertH, localScale } from '../js/scan/homography.js';
 import { detectPage, toCanonicalVotes } from '../js/scan/detect.js';
-import { makeImage, addNoise, rasterPage, fillExtraBubble } from './helpers/raster.js';
+import { makeImage, addNoise, addLightingGradient, rasterPage, fillExtraBubble, partialMark } from './helpers/raster.js';
 
 const require = createRequire(import.meta.url);
 const jsQR = require('../js/vendor/jsQR.js');
@@ -118,6 +118,105 @@ test('solid ink marks scan with no flags and high confidence', async () => {
   assert.ok(res.confidence > 0.8, 'confidence was ' + res.confidence);
 });
 
+test('partial checkmark-style marks are read as the score, not 0', async () => {
+  const election = await smallElection();
+  election.races[0].randomize = false;
+  const layout = layoutPages(election);
+  const eid = await electionId(election);
+  const code = await ballotCode(election, 6);
+  const image = makeImage(900, 1160, 225);
+  // Nothing drawn through the normal marks path; the voter made
+  // small off-center dots on scores 4, 2, and 1.
+  const H = rasterPage({
+    election, layout, page: layout.pages[0], electionIdCode: eid,
+    ballotCodeStr: code, marks: {}, answers: { q1: 1 }, image,
+    quad: [{ x: 40, y: 40 }, { x: 860, y: 40 }, { x: 860, y: 1120 }, { x: 40, y: 1120 }],
+  });
+  partialMark(image, H, layout, layout.pages[0], { raceId: 'r1', printedRow: 0, score: 4 });
+  partialMark(image, H, layout, layout.pages[0], { raceId: 'r1', printedRow: 1, score: 2 });
+  partialMark(image, H, layout, layout.pages[0], { raceId: 'r1', printedRow: 2, score: 1 });
+  const res = await detectPage(image, { election, electionIdCode: eid, layout, jsQR });
+  assert.equal(res.error, undefined, 'detect failed: ' + res.error);
+  assert.equal(res.votesByRow.r1[0], 4, 'row 0 read ' + res.votesByRow.r1[0] + ' instead of 4');
+  assert.equal(res.votesByRow.r1[1], 2, 'row 1 read ' + res.votesByRow.r1[1] + ' instead of 2');
+  assert.equal(res.votesByRow.r1[2], 1, 'row 2 read ' + res.votesByRow.r1[2] + ' instead of 1');
+});
+
+test('solid marks survive a strong lighting gradient', async () => {
+  const election = await smallElection();
+  election.races[0].randomize = false;
+  const layout = layoutPages(election);
+  const eid = await electionId(election);
+  const code = await ballotCode(election, 7);
+  const image = makeImage(900, 1160, 225);
+  rasterPage({
+    election, layout, page: layout.pages[0], electionIdCode: eid,
+    ballotCodeStr: code,
+    marks: { 'r1|0': 5, 'r1|1': 0, 'r1|2': 3 }, answers: { q1: 0 }, image,
+    quad: [{ x: 40, y: 40 }, { x: 860, y: 40 }, { x: 860, y: 1120 }, { x: 40, y: 1120 }],
+  });
+  addLightingGradient(image, 70);
+  addNoise(image, 4, 99);
+  const res = await detectPage(image, { election, electionIdCode: eid, layout, jsQR });
+  assert.equal(res.error, undefined, 'detect failed: ' + res.error);
+  assert.equal(res.votesByRow.r1[0], 5);
+  assert.equal(res.votesByRow.r1[1], 0);
+  assert.equal(res.votesByRow.r1[2], 3);
+  assert.equal(res.questions.q1, 0);
+});
+
+test('blank rows stay blank instead of reading as a chosen 0', async () => {
+  const election = await smallElection();
+  election.races[0].randomize = false;
+  const layout = layoutPages(election);
+  const eid = await electionId(election);
+  const code = await ballotCode(election, 12);
+  const image = makeImage(900, 1160, 225);
+  // Voter scored only the first candidate and skipped everything else.
+  rasterPage({
+    election, layout, page: layout.pages[0], electionIdCode: eid,
+    ballotCodeStr: code, marks: { 'r1|0': 5 }, image,
+    quad: [{ x: 40, y: 40 }, { x: 860, y: 40 }, { x: 860, y: 1120 }, { x: 40, y: 1120 }],
+  });
+  const res = await detectPage(image, { election, electionIdCode: eid, layout, jsQR });
+  assert.equal(res.error, undefined);
+  assert.equal(res.votesByRow.r1[0], 5);
+  assert.equal(res.votesByRow.r1[1], null, 'untouched row must be blank, not 0');
+  assert.equal(res.votesByRow.r1[2], null, 'untouched row must be blank, not 0');
+  assert.equal(res.questions.q1, null, 'untouched question must be blank');
+  // Every blank row and question is flagged for confirmation, and
+  // blanks alone do not lower the scan confidence.
+  const blankFlags = res.flags.filter((f) => f.kind === 'blank');
+  assert.equal(blankFlags.length, 3, JSON.stringify(res.flags));
+  assert.ok(blankFlags.some((f) => f.printedRow === 1));
+  assert.ok(blankFlags.some((f) => f.printedRow === 2));
+  assert.ok(blankFlags.some((f) => f.qId === 'q1'));
+  assert.equal(res.flags.length, 3);
+  assert.equal(res.confidence, 1);
+});
+
+test('a faint-only smudge is flagged but never auto-chosen', async () => {
+  const election = await smallElection();
+  election.races[0].randomize = false;
+  const layout = layoutPages(election);
+  const eid = await electionId(election);
+  const code = await ballotCode(election, 13);
+  const image = makeImage(900, 1160, 225);
+  const H = rasterPage({
+    election, layout, page: layout.pages[0], electionIdCode: eid,
+    ballotCodeStr: code, marks: {}, image,
+    quad: [{ x: 40, y: 40 }, { x: 860, y: 40 }, { x: 860, y: 1120 }, { x: 40, y: 1120 }],
+  });
+  // A light graze on score 3 of row 0: enough to warrant a look,
+  // nowhere near enough to count as a vote.
+  fillExtraBubble(image, H, layout, layout.pages[0], { raceId: 'r1', printedRow: 0, score: 3 }, 196);
+  const res = await detectPage(image, { election, electionIdCode: eid, layout, jsQR });
+  assert.equal(res.error, undefined);
+  assert.equal(res.votesByRow.r1[0], null, 'faint smudge must not become a vote');
+  assert.ok(res.flags.some((f) => f.kind === 'faint' && f.printedRow === 0),
+    'expected faint flag: ' + JSON.stringify(res.flags));
+});
+
 test('a stray partial mark next to a solid mark is flagged', async () => {
   const election = await smallElection();
   election.races[0].randomize = false;
@@ -130,13 +229,36 @@ test('a stray partial mark next to a solid mark is flagged', async () => {
     ballotCodeStr: code, marks: { 'r1|1': 5 }, image,
     quad: [{ x: 40, y: 40 }, { x: 860, y: 40 }, { x: 860, y: 1120 }, { x: 40, y: 1120 }],
   });
-  // Half-hearted smudge on score 2 of the same row, well below the
-  // mark threshold but dark enough to matter.
+  // Half-hearted smudge on score 2 of the same row: dark enough that
+  // it must be flagged for review, whether the classifier calls it a
+  // stray mark or a competing second mark.
   fillExtraBubble(image, H, layout, layout.pages[0], { raceId: 'r1', printedRow: 1, score: 2 }, 170);
   const res = await detectPage(image, { election, electionIdCode: eid, layout, jsQR });
   assert.equal(res.error, undefined);
   assert.equal(res.votesByRow.r1[1], 5, 'solid mark should win');
-  assert.ok(res.flags.some((f) => f.kind === 'stray'), 'expected stray flag: ' + JSON.stringify(res.flags));
+  assert.ok(res.flags.some((f) => f.kind === 'stray' || f.kind === 'multiple'),
+    'expected a review flag: ' + JSON.stringify(res.flags));
+});
+
+test('a barely-there smudge next to a solid mark raises a stray flag', async () => {
+  const election = await smallElection();
+  election.races[0].randomize = false;
+  const layout = layoutPages(election);
+  const eid = await electionId(election);
+  const code = await ballotCode(election, 11);
+  const image = makeImage(900, 1160, 225);
+  const H = rasterPage({
+    election, layout, page: layout.pages[0], electionIdCode: eid,
+    ballotCodeStr: code, marks: { 'r1|1': 5 }, image,
+    quad: [{ x: 40, y: 40 }, { x: 860, y: 40 }, { x: 860, y: 1120 }, { x: 40, y: 1120 }],
+  });
+  // Just above the faint margin, well below a countable mark.
+  fillExtraBubble(image, H, layout, layout.pages[0], { raceId: 'r1', printedRow: 1, score: 2 }, 197);
+  const res = await detectPage(image, { election, electionIdCode: eid, layout, jsQR });
+  assert.equal(res.error, undefined);
+  assert.equal(res.votesByRow.r1[1], 5);
+  assert.ok(res.flags.some((f) => f.kind === 'stray'),
+    'expected stray flag: ' + JSON.stringify(res.flags));
 });
 
 test('rejects a ballot from a different election', async () => {

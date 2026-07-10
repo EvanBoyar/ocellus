@@ -91,10 +91,28 @@ export async function renderScan(root, ctx) {
     busy = true;
     if (spoilMode) {
       showSpoilConfirm(res);
+    } else if (ctx.session.spoiled.includes(res.serial)) {
+      // Tell the official up front, before any review, and stay on
+      // this notice until they dismiss it themselves.
+      showSpoiledNotice(res.ballotCode);
     } else {
       showReview(res, [res.page]);
     }
   };
+
+  function showSpoiledNotice(code) {
+    panelEpoch += 1;
+    clear(panel);
+    panel.append(el('div', { class: 'card' },
+      el('h3', {}, 'Ballot ' + code + ' is spoiled'),
+      el('div', { class: 'notice error' },
+        'This ballot was spoiled and cannot be counted. Its marks were not recorded.'),
+      el('p', { class: 'meta' },
+        'If it was spoiled by mistake, it stays invalid: give the voter a fresh ballot instead.'),
+      el('button', { onclick: resume }, 'Keep scanning'),
+    ));
+    panel.scrollIntoView({ behavior: 'smooth' });
+  }
 
   const startLoop = async () => {
     try {
@@ -106,7 +124,14 @@ export async function renderScan(root, ctx) {
     }
   };
 
+  // Everything rendered into the panel bumps this epoch. Delayed
+  // auto-resumes only fire if the panel still shows what they were
+  // scheduled for, so a stale timer can never wipe newer content
+  // (like a spoiled notice opened right after an accept).
+  let panelEpoch = 0;
+
   const resume = () => {
+    panelEpoch += 1;
     clear(panel);
     busy = false;
     refreshCounts();
@@ -115,7 +140,15 @@ export async function renderScan(root, ctx) {
       : 'Point the camera at a ballot page.';
   };
 
+  const resumeLater = (ms) => {
+    const epoch = panelEpoch;
+    setTimeout(() => {
+      if (panelEpoch === epoch) resume();
+    }, ms);
+  };
+
   function showSpoilConfirm(res) {
+    panelEpoch += 1;
     clear(panel);
     if (ctx.session.spoiled.includes(res.serial)) {
       panel.append(el('div', { class: 'notice info' }, 'Ballot ' + res.ballotCode + ' is already spoiled.'));
@@ -144,6 +177,7 @@ export async function renderScan(root, ctx) {
   // lists which layout pages are covered (one page for a camera scan,
   // all pages for manual entry).
   async function showReview(res, pageNumbers) {
+    panelEpoch += 1;
     clear(panel);
     const blocks = pageNumbers.flatMap((n) => ctx.layout.pages[n - 1].blocks);
     const flagsFor = (raceId, row) => res.flags.filter((f) => f.raceId === raceId && f.printedRow === row);
@@ -169,10 +203,14 @@ export async function renderScan(root, ctx) {
     const confirmKey = (key) => { pending.delete(key); updateAccept(); };
 
     if (res.flags.length > 0) {
+      const onlyBlanks = res.flags.every((f) => f.kind === 'blank');
       card.append(el('div', { class: 'notice warn' },
-        'Some marks were not read with confidence'
-        + (res.confidence !== undefined ? ' (lowest ' + Math.round(res.confidence * 100) + '%)' : '')
-        + '. Tap the correct value on each highlighted row, or tap Looks right.'));
+        onlyBlanks
+          ? 'Some rows read as blank. Confirm each one is really blank, or tap the value the voter marked.'
+          : 'Some marks were not read with confidence'
+            + (res.confidence !== undefined && res.confidence < 1
+              ? ' (lowest ' + Math.round(res.confidence * 100) + '%)' : '')
+            + '. Tap the correct value on each highlighted row, or tap Looks right.'));
     }
 
     for (const block of blocks) {
@@ -185,20 +223,25 @@ export async function renderScan(root, ctx) {
           const rowFlags = flagsFor(block.raceId, row.printedRow);
           const key = block.raceId + '|' + row.printedRow;
           const picker = el('div', { class: 'score-picker' });
-          const current = () => editable.votesByRow[block.raceId]?.[row.printedRow] ?? 0;
+          const current = () => editable.votesByRow[block.raceId]?.[row.printedRow] ?? null;
+          const setScore = (s) => {
+            editable.votesByRow[block.raceId] = editable.votesByRow[block.raceId] || {};
+            editable.votesByRow[block.raceId][row.printedRow] = s;
+            confirmKey(key);
+          };
           const redraw = () => {
             clear(picker);
             for (let s = 0; s <= 5; s++) {
               picker.append(el('button', {
                 class: (current() === s ? 'sel' : '') + (pending.has(key) ? ' flagged' : ''),
-                onclick: () => {
-                  editable.votesByRow[block.raceId] = editable.votesByRow[block.raceId] || {};
-                  editable.votesByRow[block.raceId][row.printedRow] = s;
-                  confirmKey(key);
-                  redraw();
-                },
+                onclick: () => { setScore(s); redraw(); },
               }, String(s)));
             }
+            picker.append(el('button', {
+              class: (current() === null ? 'sel' : '') + (pending.has(key) ? ' flagged' : ''),
+              style: 'width:auto; padding:0 12px; border-radius:19px;',
+              onclick: () => { setScore(null); redraw(); },
+            }, 'Blank'));
             if (pending.has(key)) {
               picker.append(el('button', {
                 class: 'btn-small',
@@ -270,14 +313,14 @@ export async function renderScan(root, ctx) {
       }
       ctx.saveSession();
       if (results.some((r) => r.status === 'spoiled')) {
-        outcome.append(el('div', { class: 'notice error' }, 'This ballot is spoiled and cannot be counted.'));
-        setTimeout(resume, 1400);
+        // Backstop; normally caught before the review even opens.
+        showSpoiledNotice(res.ballotCode);
       } else if (results.every((r) => r.status === 'duplicate')) {
         outcome.append(el('div', { class: 'notice info' }, 'Already scanned. Nothing new recorded.'));
-        setTimeout(resume, 900);
+        resumeLater(900);
       } else {
         outcome.append(el('div', { class: 'notice ok' }, 'Recorded.'));
-        setTimeout(resume, 600);
+        resumeLater(600);
       }
     });
     updateAccept();
@@ -303,7 +346,7 @@ export async function renderScan(root, ctx) {
       for (const block of page.blocks) {
         if (block.type === 'race') {
           for (const row of block.rows) {
-            const score = editable.votesByRow[block.raceId]?.[row.printedRow] ?? 0;
+            const score = editable.votesByRow[block.raceId]?.[row.printedRow] ?? null;
             votesByRow[block.raceId] = votesByRow[block.raceId] || {};
             votesByRow[block.raceId][row.printedRow] = score;
           }
@@ -319,6 +362,7 @@ export async function renderScan(root, ctx) {
 
   // Manual entry: type the ballot code, then pick scores by hand.
   manualBtn.addEventListener('click', () => {
+    panelEpoch += 1;
     clear(panel);
     busy = true;
     const codeInput = el('input', { type: 'text', placeholder: 'Ballot code, like 003-K7Q2M' });
@@ -338,6 +382,10 @@ export async function renderScan(root, ctx) {
             }
             if (spoilMode) {
               showSpoilConfirm({ serial: verdict.serial, ballotCode: codeInput.value.trim().toUpperCase() });
+              return;
+            }
+            if (ctx.session.spoiled.includes(verdict.serial)) {
+              showSpoiledNotice(codeInput.value.trim().toUpperCase());
               return;
             }
             // Start from an all-blank ballot covering every page and

@@ -308,6 +308,49 @@ test('share: results round trip and merge across officials', () => {
   assert.ok(importResults('junk').error);
 });
 
+test('spoils win over scans in every merge order', async () => {
+  // Official A scanned ballot 2 before anyone knew it was bad;
+  // official B spoiled it without ever scanning it.
+  const makeA = () => {
+    const a = newSession('ELEC1234', 1);
+    mergeScan(a, scanOf(1, 1, [5, 0, 3], 1));
+    mergeScan(a, scanOf(2, 1, [0, 2, 4], 0));
+    return a;
+  };
+  const makeB = () => {
+    const b = newSession('ELEC1234', 1);
+    spoilBallot(b, 2);
+    mergeScan(b, scanOf(3, 1, [1, 1, 1], null));
+    return b;
+  };
+
+  // Order 1: A merges B's data, then B merges A's.
+  const a1 = makeA();
+  const b1 = makeB();
+  mergeSessions(a1, JSON.parse(exportImport(b1)));
+  mergeSessions(b1, JSON.parse(exportImport(a1)));
+
+  // Order 2: B merges A's data first, then A merges B's.
+  const a2 = makeA();
+  const b2 = makeB();
+  mergeSessions(b2, JSON.parse(exportImport(a2)));
+  mergeSessions(a2, JSON.parse(exportImport(b2)));
+
+  for (const s of [a1, b1, a2, b2]) {
+    assert.ok(s.spoiled.includes(2), 'ballot 2 must be spoiled everywhere');
+    assert.equal(s.records['2'], undefined, 'ballot 2 votes must be gone');
+    assert.ok(s.records['1'] && s.records['3'], 'valid ballots survive');
+  }
+  const codes = await Promise.all([a1, b1, a2, b2].map(integrityCode));
+  assert.equal(new Set(codes).size, 1, 'all four sessions must agree: ' + codes.join(' '));
+
+  function exportImport(session) {
+    const back = importResults(exportResults(session));
+    assert.equal(back.error, undefined);
+    return JSON.stringify(back.session);
+  }
+});
+
 test('merging sessions is idempotent for the EIC', async () => {
   const a = newSession('ELEC1234', 1);
   mergeScan(a, scanOf(1, 1, [5, 0, 3], 1));

@@ -17,6 +17,20 @@ export function makeImage(width, height, background = 235) {
   return { data, width, height };
 }
 
+// Simulates uneven lighting: brightness falls off linearly from the
+// top-left corner to the bottom-right, like a shadowed photo.
+export function addLightingGradient(image, drop = 60) {
+  const { data, width, height } = image;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const t = (x / width + y / height) / 2;
+      const factor = 1 - (drop / 255) * t;
+      const i = (y * width + x) * 4;
+      for (let c = 0; c < 3; c++) data[i + c] = Math.round(data[i + c] * factor);
+    }
+  }
+}
+
 // Deterministic light noise so tests exercise non-uniform paper.
 export function addNoise(image, amplitude = 6, seed = 12345) {
   let s = seed;
@@ -138,5 +152,19 @@ export function fillExtraBubble(image, H, layout, page, match, shade = 40) {
       ? b.raceId === match.raceId && b.printedRow === match.printedRow && b.score === match.score
       : b.qId === match.qId && b.value === match.value;
     if (hit) disk(image, H, Hinv, b.x, b.y, GEOM.bubbleR * 0.95, shade);
+  }
+}
+
+// Draws a small off-center blot instead of a neat fill: the way real
+// voters mark with a checkmark tick or a quick dot. Covers only part
+// of the bubble and misses its center.
+export function partialMark(image, H, layout, page, match, shade = 55) {
+  const Hinv = invertH(H);
+  for (const b of pageBubbles(layout, page)) {
+    const hit = b.kind === 'score'
+      && b.raceId === match.raceId && b.printedRow === match.printedRow && b.score === match.score;
+    if (hit) {
+      disk(image, H, Hinv, b.x + 0.9, b.y + 0.6, GEOM.bubbleR * 0.5, shade);
+    }
   }
 }

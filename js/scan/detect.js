@@ -12,13 +12,20 @@ import { qrModules } from '../model/render.js';
 import { computeHomography, applyH, invertH, localScale } from './homography.js';
 
 // Every bubble gets an ink fill fraction between 0 (clean paper) and
-// 1 (as dark as the registration marks). Classification thresholds:
-// below UNCERTAIN_LOW is a confident blank, above CONFIDENT is a
-// confident mark, and anything in between is readable but gets
-// flagged so the official must confirm it during review.
-const FILL_THRESHOLD = 0.45;
-const UNCERTAIN_LOW = 0.28;
-const CONFIDENT = 0.60;
+// 1 (as dark as the registration marks).
+//
+// Classification is RELATIVE within each row: a marked bubble is one
+// that stands out from its row's baseline (the median of its
+// siblings). Real voters make checkmarks, dots, and ballpoint
+// scribbles that cover only part of the bubble and can read as
+// little as 25-40% ink in absolute terms, and lighting shifts the
+// absolute numbers anyway; relative comparison survives both.
+// Absolute levels still gate the confidence flags.
+const MARK_MARGIN = 0.18;     // fill above row baseline that means "marked"
+const FAINT_MARGIN = 0.10;    // above this but below MARK_MARGIN: flag as faint
+const CONFIDENT = 0.62;       // absolute fill below this flags for review
+const FILL_THRESHOLD = 0.45;  // absolute fill that always counts as marked
+const MESSY_BASELINE = 0.35;  // whole row this dark means scribbles everywhere
 
 // image: {data: Uint8ClampedArray RGBA, width, height}
 // ctx: {election, electionIdCode, layout, jsQR}
@@ -95,11 +102,23 @@ export async function detectPage(image, ctx) {
   const page = layout.pages[payload.page - 1];
   if (!page) return { error: 'QR page number out of range.' };
 
+  // Sample each bubble at its center and at four slight offsets, and
+  // keep the darkest reading. Checkmarks and dots rarely sit dead
+  // center, and slightly bent paper shifts the projected centers by a
+  // pixel or two; the darkest of five positions catches both.
   const fills = [];
+  const offsets = [
+    [0, 0], [0.6, 0], [-0.6, 0], [0, 0.6], [0, -0.6],
+  ];
   for (const b of pageBubbles(layout, page)) {
-    const center = applyH(H, b.x, b.y);
     const scale = localScale(H, b.x, b.y);
-    const inner = sampleDisk(gray, center, scale * GEOM.bubbleR * 0.62);
+    let inner = 255;
+    for (const [dx, dy] of offsets) {
+      const c = applyH(H, b.x + dx, b.y + dy);
+      const v = sampleDisk(gray, c, scale * GEOM.bubbleR * 0.62);
+      if (v < inner) inner = v;
+    }
+    const center = applyH(H, b.x, b.y);
     const fill = (paperRef - inner) / (paperRef - inkRef);
     fills.push({ ...b, cx: center.x, cy: center.y, fill: clamp01(fill) });
   }
@@ -115,23 +134,20 @@ export async function detectPage(image, ctx) {
     questions,
     fills,
     flags,
-    confidence: overallConfidence(fills),
+    confidence: scanConfidence(flags),
     homography: H,
   };
 }
 
-// How sure the reader is about a single bubble: 1 when the fill sits
-// far from the filled/blank threshold on either side, falling to 0
-// right at the threshold.
-export function bubbleConfidence(fill) {
-  const c = Math.abs(fill - FILL_THRESHOLD) / (CONFIDENT - FILL_THRESHOLD);
-  return c > 1 ? 1 : c;
-}
-
-function overallConfidence(fills) {
+// Whole-scan confidence, derived from the row verdicts: 1 when every
+// row read cleanly, lower when anything needed a flag. Blank rows
+// are flagged only so the official confirms them; they are not a
+// sign of a doubtful read.
+function scanConfidence(flags) {
   let min = 1;
-  for (const f of fills) {
-    const c = bubbleConfidence(f.fill);
+  for (const f of flags) {
+    if (f.kind === 'blank') continue;
+    const c = f.kind === 'multiple' || f.kind === 'overvote' || f.kind === 'messy' ? 0.4 : 0.6;
     if (c < min) min = c;
   }
   return min;
@@ -159,51 +175,109 @@ function classify(fills, election, page) {
   for (const [key, cells] of byRow) {
     const [raceId, rowStr] = key.split('|');
     const row = Number(rowStr);
-    cells.sort((a, b) => b.fill - a.fill);
-    const marked = cells.filter((c) => c.fill >= FILL_THRESHOLD);
-    const flag = (kind, message) => flags.push({ raceId, printedRow: row, kind, message });
-    let score = 0;
-    if (marked.length > 1) {
-      score = marked[0].score;
-      flag('multiple', 'More than one bubble marked; kept the darkest.');
-    } else if (marked.length === 1) {
-      score = marked[0].score;
-      if (marked[0].fill < CONFIDENT) {
-        flag('uncertain', 'Mark read at only ' + pct(marked[0].fill) + '% ink; confirm the score.');
-      } else if (cells[1] && cells[1].fill >= UNCERTAIN_LOW) {
-        flag('stray', 'Another bubble in this row shows partial marking ('
-          + pct(cells[1].fill) + '% ink); confirm the score.');
-      }
-    } else if (cells[0] && cells[0].fill >= UNCERTAIN_LOW) {
-      score = cells[0].score;
-      flag('faint', 'Faint mark (' + pct(cells[0].fill) + '% ink); confirm the score.');
+    const verdict = judgeRow(cells);
+    if (verdict.flag) {
+      flags.push({
+        raceId, printedRow: row, kind: verdict.flag,
+        message: verdict.message.replace('%WHAT%', 'score'),
+      });
     }
     votesByRow[raceId] = votesByRow[raceId] || {};
-    votesByRow[raceId][row] = score;
+    // null means the row is blank; tallies and the EIC count it as 0,
+    // but the review screen shows it honestly as no selection.
+    votesByRow[raceId][row] = verdict.chosen ? verdict.chosen.score : null;
   }
 
   for (const block of page.blocks) {
     if (block.type !== 'question') continue;
-    const cells = fills.filter((f) => f.kind === 'option' && f.qId === block.qId)
-      .sort((a, b) => b.fill - a.fill);
-    const marked = cells.filter((c) => c.fill >= FILL_THRESHOLD);
-    const flag = (kind, message) => flags.push({ qId: block.qId, kind, message });
-    if (marked.length > 1) {
-      questions[block.qId] = null;
-      flag('overvote', 'Both options marked; counted as blank.');
-    } else if (marked.length === 1) {
-      questions[block.qId] = marked[0].value;
-      if (marked[0].fill < CONFIDENT) {
-        flag('uncertain', 'Mark read at only ' + pct(marked[0].fill) + '% ink; confirm the answer.');
-      }
-    } else if (cells[0] && cells[0].fill >= UNCERTAIN_LOW) {
-      questions[block.qId] = cells[0].value;
-      flag('faint', 'Faint mark (' + pct(cells[0].fill) + '% ink); confirm the answer.');
+    const cells = fills.filter((f) => f.kind === 'option' && f.qId === block.qId);
+    const verdict = judgeRow(cells);
+    if (verdict.flag) {
+      flags.push({
+        qId: block.qId,
+        kind: verdict.flag === 'multiple' ? 'overvote' : verdict.flag,
+        message: verdict.message.replace('%WHAT%', 'answer'),
+      });
+    }
+    if (verdict.flag === 'multiple') {
+      questions[block.qId] = null; // an overvoted question counts as blank
     } else {
-      questions[block.qId] = null;
+      questions[block.qId] = verdict.chosen ? verdict.chosen.value : null;
     }
   }
   return { votesByRow, questions, flags };
+}
+
+// Decides which bubble in a row (if any) is marked. Returns
+// { chosen, flag, message } where chosen is the winning cell or null
+// for a blank row. The %WHAT% token in messages becomes "score" or
+// "answer" at the call site.
+function judgeRow(cells) {
+  const sorted = [...cells].sort((a, b) => b.fill - a.fill);
+  const baseline = median(cells.length === 2
+    ? [sorted[1].fill]
+    : sorted.slice(1).map((c) => c.fill));
+  const signal = (c) => c.fill - baseline;
+  const marked = sorted.filter((c) => signal(c) >= MARK_MARGIN || c.fill >= FILL_THRESHOLD);
+
+  if (baseline >= MESSY_BASELINE) {
+    return {
+      chosen: marked[0] || sorted[0],
+      flag: 'messy',
+      message: 'This whole row reads heavily marked; check the %WHAT%.',
+    };
+  }
+  if (marked.length > 1) {
+    return {
+      chosen: marked[0],
+      flag: 'multiple',
+      message: 'More than one bubble marked; kept the darkest.',
+    };
+  }
+  if (marked.length === 1) {
+    const top = marked[0];
+    if (top.fill < CONFIDENT) {
+      return {
+        chosen: top,
+        flag: 'uncertain',
+        message: 'Mark read at only ' + pct(top.fill) + '% ink; confirm the %WHAT%.',
+      };
+    }
+    const runnerUp = sorted.find((c) => c !== top);
+    if (runnerUp && signal(runnerUp) >= FAINT_MARGIN) {
+      return {
+        chosen: top,
+        flag: 'stray',
+        message: 'Another bubble shows partial marking ('
+          + pct(runnerUp.fill) + '% ink); confirm the %WHAT%.',
+      };
+    }
+    return { chosen: top, flag: null };
+  }
+  // Nothing cleared the mark threshold. A near-miss gets flagged but
+  // is NOT chosen: the scanner never picks a value the voter did not
+  // clearly make, and a blank row stays blank. Even a clean blank is
+  // flagged, because a blank row is exactly where a missed mark
+  // would hide; the official confirms it during review.
+  if (sorted[0] && signal(sorted[0]) >= FAINT_MARGIN) {
+    return {
+      chosen: null,
+      flag: 'faint',
+      message: 'Possible faint mark (' + pct(sorted[0].fill)
+        + '% ink) left blank; confirm the %WHAT%.',
+    };
+  }
+  return {
+    chosen: null,
+    flag: 'blank',
+    message: 'Read as blank; confirm.',
+  };
+}
+
+function median(values) {
+  const s = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
 // Summed-area table for fast box means. sums has (w+1) x (h+1)

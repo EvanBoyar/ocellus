@@ -1,6 +1,6 @@
 // Offline cache for the app shell. Bump the version whenever any
 // shipped file changes so clients pick up updates.
-const CACHE = 'ocellus-v0.0.7';
+const CACHE = 'ocellus-v0.0.8';
 
 const SHELL = [
   '.',
