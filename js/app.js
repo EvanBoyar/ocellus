@@ -57,10 +57,10 @@ export function navTabs(ctx, active) {
     ['scan', 'Scan'],
     ['results', 'Results'],
   ];
-  return el('div', { class: 'row', style: 'margin: 6px 0 2px;' },
-    el('a', { class: 'btn btn-quiet btn-small', href: '#/' }, 'Elections'),
+  return el('nav', { class: 'tabs' },
+    el('a', { href: '#/' }, 'Elections'),
     ...tabs.map(([slug, label]) => el('a', {
-      class: 'btn btn-small ' + (active === slug ? '' : 'btn-quiet'),
+      class: active === slug ? 'active' : '',
       href: '#/e/' + ctx.entry.id + '/' + slug,
     }, label)),
   );

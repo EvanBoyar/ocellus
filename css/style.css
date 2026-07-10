@@ -45,9 +45,12 @@ html, body {
   text-decoration: none;
 }
 
-.brand-icon { width: 30px; height: 30px; border-radius: 7px; }
+.brand-icon { width: 34px; height: 34px; border-radius: 8px; }
+.brand-text { display: flex; flex-direction: column; line-height: 1.25; }
+.brand-row { display: flex; align-items: baseline; gap: 7px; }
 .brand-name { font-weight: 700; font-size: 1.15rem; letter-spacing: 0.02em; }
-.brand-version { font-size: 0.78rem; opacity: 0.8; margin-top: 3px; }
+.brand-version { font-size: 0.78rem; opacity: 0.8; }
+.brand-tagline { font-size: 0.68rem; opacity: 0.75; letter-spacing: 0.01em; }
 
 .header-right { display: flex; align-items: center; gap: 12px; }
 .byline { font-size: 0.8rem; opacity: 0.85; }
@@ -121,6 +124,33 @@ label.field { display: block; margin: 10px 0; font-size: 0.9rem; }
 label.field > span { display: block; margin-bottom: 4px; color: var(--muted); }
 label.check { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; margin: 8px 0; }
 label.check input { width: auto; }
+
+.tabs {
+  display: flex;
+  gap: 3px;
+  border-bottom: 2px solid #b9b3a7;
+  margin: 8px 0 6px;
+  overflow-x: auto;
+}
+.tabs a {
+  padding: 8px 12px 7px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.92rem;
+  white-space: nowrap;
+  background: #e6e1d5;
+  border: 1.5px solid #b9b3a7;
+  border-bottom: none;
+  border-radius: 9px 9px 0 0;
+}
+.tabs a.active {
+  color: var(--teal);
+  font-weight: 700;
+  background: var(--paper);
+  margin-bottom: -2px;
+  padding-bottom: 9px;
+}
+.tabs a:not(.active):hover { background: #efece6; color: var(--teal-dark); }
 
 .list-item {
   display: flex;
