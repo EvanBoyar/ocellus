@@ -11,10 +11,14 @@ import { verifyBallotCode } from '../model/ballotid.js';
 import { qrModules } from '../model/render.js';
 import { computeHomography, applyH, invertH, localScale } from './homography.js';
 
-// Bubble is "filled" above this fraction of full ink darkness, and
-// "uncertain" above UNCERTAIN (flagged for review).
+// Every bubble gets an ink fill fraction between 0 (clean paper) and
+// 1 (as dark as the registration marks). Classification thresholds:
+// below UNCERTAIN_LOW is a confident blank, above CONFIDENT is a
+// confident mark, and anything in between is readable but gets
+// flagged so the official must confirm it during review.
 const FILL_THRESHOLD = 0.45;
-const UNCERTAIN = 0.28;
+const UNCERTAIN_LOW = 0.28;
+const CONFIDENT = 0.60;
 
 // image: {data: Uint8ClampedArray RGBA, width, height}
 // ctx: {election, electionIdCode, layout, jsQR}
@@ -111,8 +115,30 @@ export async function detectPage(image, ctx) {
     questions,
     fills,
     flags,
+    confidence: overallConfidence(fills),
     homography: H,
   };
+}
+
+// How sure the reader is about a single bubble: 1 when the fill sits
+// far from the filled/blank threshold on either side, falling to 0
+// right at the threshold.
+export function bubbleConfidence(fill) {
+  const c = Math.abs(fill - FILL_THRESHOLD) / (CONFIDENT - FILL_THRESHOLD);
+  return c > 1 ? 1 : c;
+}
+
+function overallConfidence(fills) {
+  let min = 1;
+  for (const f of fills) {
+    const c = bubbleConfidence(f.fill);
+    if (c < min) min = c;
+  }
+  return min;
+}
+
+function pct(fill) {
+  return Math.round(fill * 100);
 }
 
 // Turns bubble fill fractions into per-row scores. Rows are printed
@@ -133,19 +159,24 @@ function classify(fills, election, page) {
   for (const [key, cells] of byRow) {
     const [raceId, rowStr] = key.split('|');
     const row = Number(rowStr);
+    cells.sort((a, b) => b.fill - a.fill);
     const marked = cells.filter((c) => c.fill >= FILL_THRESHOLD);
-    const uncertain = cells.filter((c) => c.fill >= UNCERTAIN && c.fill < FILL_THRESHOLD);
+    const flag = (kind, message) => flags.push({ raceId, printedRow: row, kind, message });
     let score = 0;
-    if (marked.length === 1) {
+    if (marked.length > 1) {
       score = marked[0].score;
-    } else if (marked.length > 1) {
-      marked.sort((a, b) => b.fill - a.fill);
+      flag('multiple', 'More than one bubble marked; kept the darkest.');
+    } else if (marked.length === 1) {
       score = marked[0].score;
-      flags.push({ raceId, printedRow: row, kind: 'multiple', message: 'More than one bubble marked; kept the darkest.' });
-    } else if (uncertain.length > 0) {
-      uncertain.sort((a, b) => b.fill - a.fill);
-      score = uncertain[0].score;
-      flags.push({ raceId, printedRow: row, kind: 'faint', message: 'Faint mark; please confirm.' });
+      if (marked[0].fill < CONFIDENT) {
+        flag('uncertain', 'Mark read at only ' + pct(marked[0].fill) + '% ink; confirm the score.');
+      } else if (cells[1] && cells[1].fill >= UNCERTAIN_LOW) {
+        flag('stray', 'Another bubble in this row shows partial marking ('
+          + pct(cells[1].fill) + '% ink); confirm the score.');
+      }
+    } else if (cells[0] && cells[0].fill >= UNCERTAIN_LOW) {
+      score = cells[0].score;
+      flag('faint', 'Faint mark (' + pct(cells[0].fill) + '% ink); confirm the score.');
     }
     votesByRow[raceId] = votesByRow[raceId] || {};
     votesByRow[raceId][row] = score;
@@ -153,13 +184,21 @@ function classify(fills, election, page) {
 
   for (const block of page.blocks) {
     if (block.type !== 'question') continue;
-    const cells = fills.filter((f) => f.kind === 'option' && f.qId === block.qId);
+    const cells = fills.filter((f) => f.kind === 'option' && f.qId === block.qId)
+      .sort((a, b) => b.fill - a.fill);
     const marked = cells.filter((c) => c.fill >= FILL_THRESHOLD);
-    if (marked.length === 1) {
-      questions[block.qId] = marked[0].value;
-    } else if (marked.length > 1) {
+    const flag = (kind, message) => flags.push({ qId: block.qId, kind, message });
+    if (marked.length > 1) {
       questions[block.qId] = null;
-      flags.push({ qId: block.qId, kind: 'overvote', message: 'Both options marked; counted as blank.' });
+      flag('overvote', 'Both options marked; counted as blank.');
+    } else if (marked.length === 1) {
+      questions[block.qId] = marked[0].value;
+      if (marked[0].fill < CONFIDENT) {
+        flag('uncertain', 'Mark read at only ' + pct(marked[0].fill) + '% ink; confirm the answer.');
+      }
+    } else if (cells[0] && cells[0].fill >= UNCERTAIN_LOW) {
+      questions[block.qId] = cells[0].value;
+      flag('faint', 'Faint mark (' + pct(cells[0].fill) + '% ink); confirm the answer.');
     } else {
       questions[block.qId] = null;
     }

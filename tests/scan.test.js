@@ -100,10 +100,43 @@ test('detects marks on an upside-down photo', async () => {
   ]);
 });
 
-test('detects lighter pencil marks', async () => {
-  await roundTrip([
+test('detects lighter pencil marks and flags them as uncertain', async () => {
+  const res = await roundTrip([
     { x: 40, y: 40 }, { x: 860, y: 40 }, { x: 860, y: 1120 }, { x: 40, y: 1120 },
   ], { fillShade: 110 });
+  // Pencil-light fills read just above the mark threshold, so every
+  // marked row must come back flagged for confirmation.
+  assert.ok(res.flags.some((f) => f.kind === 'uncertain'), 'expected uncertain flags');
+  assert.ok(res.confidence < 1);
+});
+
+test('solid ink marks scan with no flags and high confidence', async () => {
+  const res = await roundTrip([
+    { x: 40, y: 40 }, { x: 860, y: 40 }, { x: 860, y: 1120 }, { x: 40, y: 1120 },
+  ], { fillShade: 30 });
+  assert.equal(res.flags.length, 0, 'unexpected flags: ' + JSON.stringify(res.flags));
+  assert.ok(res.confidence > 0.8, 'confidence was ' + res.confidence);
+});
+
+test('a stray partial mark next to a solid mark is flagged', async () => {
+  const election = await smallElection();
+  election.races[0].randomize = false;
+  const layout = layoutPages(election);
+  const eid = await electionId(election);
+  const code = await ballotCode(election, 3);
+  const image = makeImage(900, 1160, 225);
+  const H = rasterPage({
+    election, layout, page: layout.pages[0], electionIdCode: eid,
+    ballotCodeStr: code, marks: { 'r1|1': 5 }, image,
+    quad: [{ x: 40, y: 40 }, { x: 860, y: 40 }, { x: 860, y: 1120 }, { x: 40, y: 1120 }],
+  });
+  // Half-hearted smudge on score 2 of the same row, well below the
+  // mark threshold but dark enough to matter.
+  fillExtraBubble(image, H, layout, layout.pages[0], { raceId: 'r1', printedRow: 1, score: 2 }, 170);
+  const res = await detectPage(image, { election, electionIdCode: eid, layout, jsQR });
+  assert.equal(res.error, undefined);
+  assert.equal(res.votesByRow.r1[1], 5, 'solid mark should win');
+  assert.ok(res.flags.some((f) => f.kind === 'stray'), 'expected stray flag: ' + JSON.stringify(res.flags));
 });
 
 test('rejects a ballot from a different election', async () => {

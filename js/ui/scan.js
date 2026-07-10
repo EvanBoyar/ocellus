@@ -155,9 +155,24 @@ export async function renderScan(root, ctx) {
       : '';
     card.append(el('h3', {}, 'Ballot ' + res.ballotCode + pageLabel));
 
+    // Every flagged row must be explicitly confirmed (or corrected)
+    // before the scan can be accepted.
+    const pending = new Set(res.flags.map((f) =>
+      f.qId ? 'q:' + f.qId : f.raceId + '|' + f.printedRow));
+    const acceptBtn = el('button', { class: 'btn-coral' }, 'Accept');
+    const updateAccept = () => {
+      acceptBtn.disabled = pending.size > 0;
+      acceptBtn.textContent = pending.size > 0
+        ? 'Confirm ' + pending.size + (pending.size === 1 ? ' mark' : ' marks') + ' to accept'
+        : 'Accept';
+    };
+    const confirmKey = (key) => { pending.delete(key); updateAccept(); };
+
     if (res.flags.length > 0) {
       card.append(el('div', { class: 'notice warn' },
-        'Some marks need a second look. Check the highlighted rows below.'));
+        'Some marks were not read with confidence'
+        + (res.confidence !== undefined ? ' (lowest ' + Math.round(res.confidence * 100) + '%)' : '')
+        + '. Tap the correct value on each highlighted row, or tap Looks right.'));
     }
 
     for (const block of blocks) {
@@ -168,19 +183,28 @@ export async function renderScan(root, ctx) {
         for (const row of block.rows) {
           const name = race.candidates[order[row.printedRow]];
           const rowFlags = flagsFor(block.raceId, row.printedRow);
+          const key = block.raceId + '|' + row.printedRow;
           const picker = el('div', { class: 'score-picker' });
           const current = () => editable.votesByRow[block.raceId]?.[row.printedRow] ?? 0;
           const redraw = () => {
             clear(picker);
             for (let s = 0; s <= 5; s++) {
               picker.append(el('button', {
-                class: (current() === s ? 'sel' : '') + (rowFlags.length ? ' flagged' : ''),
+                class: (current() === s ? 'sel' : '') + (pending.has(key) ? ' flagged' : ''),
                 onclick: () => {
                   editable.votesByRow[block.raceId] = editable.votesByRow[block.raceId] || {};
                   editable.votesByRow[block.raceId][row.printedRow] = s;
+                  confirmKey(key);
                   redraw();
                 },
               }, String(s)));
+            }
+            if (pending.has(key)) {
+              picker.append(el('button', {
+                class: 'btn-small',
+                style: 'width:auto; padding:0 12px; border-radius:19px;',
+                onclick: () => { confirmKey(key); redraw(); },
+              }, 'Looks right'));
             }
           };
           redraw();
@@ -193,6 +217,7 @@ export async function renderScan(root, ctx) {
       } else {
         const q = ctx.election.questions.find((x) => x.id === block.qId);
         const qFlags = res.flags.filter((f) => f.qId === block.qId);
+        const qKey = 'q:' + block.qId;
         card.append(el('h2', {}, q.title));
         const picker = el('div', { class: 'score-picker' });
         const labels = [[1, q.labels ? q.labels[0] : 'Yes'], [0, q.labels ? q.labels[1] : 'No'], [null, 'Blank']];
@@ -200,10 +225,17 @@ export async function renderScan(root, ctx) {
           clear(picker);
           for (const [value, label] of labels) {
             picker.append(el('button', {
-              class: (editable.questions[block.qId] === value ? 'sel' : '') + (qFlags.length ? ' flagged' : ''),
+              class: (editable.questions[block.qId] === value ? 'sel' : '') + (pending.has(qKey) ? ' flagged' : ''),
               style: 'width:auto; padding:0 14px; border-radius:19px;',
-              onclick: () => { editable.questions[block.qId] = value; redraw(); },
+              onclick: () => { editable.questions[block.qId] = value; confirmKey(qKey); redraw(); },
             }, label));
+          }
+          if (pending.has(qKey)) {
+            picker.append(el('button', {
+              class: 'btn-small',
+              style: 'width:auto; padding:0 12px; border-radius:19px;',
+              onclick: () => { confirmKey(qKey); redraw(); },
+            }, 'Looks right'));
           }
         };
         redraw();
@@ -216,44 +248,43 @@ export async function renderScan(root, ctx) {
     }
 
     const outcome = el('div');
+    acceptBtn.addEventListener('click', async () => {
+      const scans = await buildScans(res.serial, pageNumbers, editable);
+      const results = scans.map((scan) => mergeScan(ctx.session, scan));
+      clear(outcome);
+      if (results.some((r) => r.status === 'conflict')) {
+        outcome.append(el('div', { class: 'notice error' },
+          'This ballot was already scanned with different marks. Keep the earlier scan, or replace it with this one.'),
+        el('div', { class: 'row' },
+          el('button', { class: 'btn-quiet btn-small', onclick: resume }, 'Keep earlier scan'),
+          el('button', {
+            class: 'btn-danger btn-small',
+            onclick: () => {
+              for (const scan of scans) overwriteScan(ctx.session, scan);
+              ctx.saveSession();
+              resume();
+            },
+          }, 'Replace with this scan'),
+        ));
+        return;
+      }
+      ctx.saveSession();
+      if (results.some((r) => r.status === 'spoiled')) {
+        outcome.append(el('div', { class: 'notice error' }, 'This ballot is spoiled and cannot be counted.'));
+        setTimeout(resume, 1400);
+      } else if (results.every((r) => r.status === 'duplicate')) {
+        outcome.append(el('div', { class: 'notice info' }, 'Already scanned. Nothing new recorded.'));
+        setTimeout(resume, 900);
+      } else {
+        outcome.append(el('div', { class: 'notice ok' }, 'Recorded.'));
+        setTimeout(resume, 600);
+      }
+    });
+    updateAccept();
     card.append(
       outcome,
       el('div', { class: 'row', style: 'margin-top: 12px;' },
-        el('button', {
-          class: 'btn-coral',
-          onclick: async () => {
-            const scans = await buildScans(res.serial, pageNumbers, editable);
-            const results = scans.map((scan) => mergeScan(ctx.session, scan));
-            clear(outcome);
-            if (results.some((r) => r.status === 'conflict')) {
-              outcome.append(el('div', { class: 'notice error' },
-                'This ballot was already scanned with different marks. Keep the earlier scan, or replace it with this one.'),
-              el('div', { class: 'row' },
-                el('button', { class: 'btn-quiet btn-small', onclick: resume }, 'Keep earlier scan'),
-                el('button', {
-                  class: 'btn-danger btn-small',
-                  onclick: () => {
-                    for (const scan of scans) overwriteScan(ctx.session, scan);
-                    ctx.saveSession();
-                    resume();
-                  },
-                }, 'Replace with this scan'),
-              ));
-              return;
-            }
-            ctx.saveSession();
-            if (results.some((r) => r.status === 'spoiled')) {
-              outcome.append(el('div', { class: 'notice error' }, 'This ballot is spoiled and cannot be counted.'));
-              setTimeout(resume, 1400);
-            } else if (results.every((r) => r.status === 'duplicate')) {
-              outcome.append(el('div', { class: 'notice info' }, 'Already scanned. Nothing new recorded.'));
-              setTimeout(resume, 900);
-            } else {
-              outcome.append(el('div', { class: 'notice ok' }, 'Recorded.'));
-              setTimeout(resume, 600);
-            }
-          },
-        }, 'Accept'),
+        acceptBtn,
         el('button', { class: 'btn-quiet', onclick: resume }, 'Rescan'),
       ),
     );
