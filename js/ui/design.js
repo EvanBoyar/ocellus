@@ -104,7 +104,8 @@ export async function renderDesign(root, ctx) {
       racesBox.append(el('div', { class: 'card' },
         el('div', { class: 'row space' },
           el('input', {
-            type: 'text', value: race.title, class: 'grow',
+            type: 'text', value: race.title, class: 'grow race-title',
+            placeholder: 'Race title (e.g. President)',
             style: 'font-weight: 600;',
             oninput: (ev) => { race.title = ev.target.value; persist(); },
           }),
@@ -152,7 +153,9 @@ export async function renderDesign(root, ctx) {
       questionsBox.append(el('div', { class: 'card' },
         el('div', { class: 'row space' },
           el('input', {
-            type: 'text', value: q.title, class: 'grow', style: 'font-weight: 600;',
+            type: 'text', value: q.title, class: 'grow question-title',
+            placeholder: 'Question (e.g. Adopt the new bylaws?)',
+            style: 'font-weight: 600;',
             oninput: (ev) => { q.title = ev.target.value; persist(); },
           }),
           el('button', {
@@ -173,10 +176,28 @@ export async function renderDesign(root, ctx) {
     el('h2', {}, 'Races (STAR voting)'),
     el('p', { class: 'sub' }, 'Voters score every candidate from 0 to 5. The two highest-scored candidates go to an automatic runoff.'),
     racesBox,
-    el('button', { class: 'btn-quiet', onclick: () => { addRace(e); persist(); drawRaces(); } }, 'Add race'),
+    el('button', {
+      class: 'btn-quiet',
+      onclick: () => {
+        addRace(e);
+        persist();
+        drawRaces();
+        const inputs = racesBox.querySelectorAll('input.race-title');
+        if (inputs.length > 0) inputs[inputs.length - 1].focus();
+      },
+    }, 'Add race'),
     el('h2', {}, 'Yes/No questions'),
     questionsBox,
-    el('button', { class: 'btn-quiet', onclick: () => { addQuestion(e); persist(); drawQuestions(); } }, 'Add question'),
+    el('button', {
+      class: 'btn-quiet',
+      onclick: () => {
+        addQuestion(e);
+        persist();
+        drawQuestions();
+        const inputs = questionsBox.querySelectorAll('input.question-title');
+        if (inputs.length > 0) inputs[inputs.length - 1].focus();
+      },
+    }, 'Add question'),
   );
 
   // Sharing.

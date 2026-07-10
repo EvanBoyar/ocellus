@@ -38,10 +38,13 @@ export function freshId(prefix, existing) {
   return prefix + n;
 }
 
+// New races and questions start untitled; the design screen focuses
+// the empty field so the official just types. readyToPrint() blocks
+// printing until everything has a real name.
 export function addRace(election, title) {
   const race = {
     id: freshId('r', election.races),
-    title: title || 'New Race',
+    title: title || '',
     candidates: [],
     randomize: true,
   };
@@ -52,7 +55,7 @@ export function addRace(election, title) {
 export function addQuestion(election, title) {
   const q = {
     id: freshId('q', election.questions),
-    title: title || 'New Question',
+    title: title || '',
     labels: ['Yes', 'No'],
     num: 1,
     den: 2,
@@ -102,8 +105,13 @@ export function validateElection(e) {
   return null;
 }
 
-// True when the election is complete enough to print ballots.
+// True when the election is complete enough to print ballots: every
+// race and question titled, every race populated with named
+// candidates.
 export function readyToPrint(e) {
   if (validateElection(e)) return false;
-  return e.races.every((r) => r.candidates.length >= 1);
+  return e.races.every((r) => r.title.trim().length > 0
+      && r.candidates.length >= 1
+      && r.candidates.every((c) => c.trim().length > 0))
+    && e.questions.every((q) => q.title.trim().length > 0);
 }

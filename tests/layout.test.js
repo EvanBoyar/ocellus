@@ -47,6 +47,22 @@ test('layout flows long races across pages and stays deterministic', async () =>
   }
 });
 
+test('untitled races and questions block printing', async () => {
+  const { readyToPrint, addQuestion: addQ } = await import('../js/model/election.js');
+  const e = newElection('T');
+  const r = addRace(e); // no title
+  r.candidates = ['A', 'B'];
+  assert.equal(readyToPrint(e), false);
+  r.title = 'Chair';
+  assert.equal(readyToPrint(e), true);
+  const q = addQ(e);
+  assert.equal(readyToPrint(e), false);
+  q.title = 'Approve?';
+  assert.equal(readyToPrint(e), true);
+  r.candidates.push('   ');
+  assert.equal(readyToPrint(e), false, 'blank candidate names block printing');
+});
+
 test('qr payload round trips', () => {
   const s = qrPayload('ABCD2345', '003-K7Q2M', 2, 3);
   const p = parseQrPayload(s);

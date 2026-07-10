@@ -12,7 +12,8 @@ export async function renderBallots(root, ctx) {
 
   if (!readyToPrint(ctx.election)) {
     root.append(el('div', { class: 'notice warn' },
-      'The design is not ready to print yet. Every race needs at least one candidate.'));
+      'The design is not ready to print yet. Every race and question needs a title, '
+      + 'and every race needs at least one named candidate.'));
     return;
   }
 
