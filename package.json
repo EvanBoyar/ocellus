@@ -1,0 +1,10 @@
+{
+  "name": "ocellus",
+  "version": "0.0.1",
+  "description": "STAR voting ballot generator, scanner, and tabulator for small clubs and organizations.",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/",
+    "serve": "python3 -m http.server 8080"
+  }
+}

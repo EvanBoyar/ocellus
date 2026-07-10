@@ -1,0 +1,14 @@
+{
+  "name": "Ocellus",
+  "short_name": "Ocellus",
+  "description": "STAR voting ballot generator, scanner, and tabulator for small clubs and organizations.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0E5E66",
+  "theme_color": "#0E5E66",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
