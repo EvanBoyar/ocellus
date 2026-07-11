@@ -72,9 +72,12 @@ function centeredLines(lines, x, cy, fs, lineH, attrs) {
 }
 
 // One page of one ballot.
-// opts: { election, layout, page, serial, code, orders, electionIdCode }
+// opts: { election, layout, page, serial, code, orders, electionIdCode,
+//         sample }
+// With sample set, the page is watermarked SAMPLE and carries no QR
+// and no ballot code, so it can never be scanned into a count.
 export function renderPageSvg(opts) {
-  const { election, layout, page, code, orders, electionIdCode } = opts;
+  const { election, layout, page, code, orders, electionIdCode, sample } = opts;
   const { paper, header } = layout;
   const p = [];
   p.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${paper.w} ${paper.h}" `
@@ -87,6 +90,16 @@ export function renderPageSvg(opts) {
       + `width="${GEOM.markSize}" height="${GEOM.markSize}" fill="#000"/>`);
   }
 
+  // Watermark, drawn before the content so text and bubbles stay
+  // fully legible over it.
+  if (sample) {
+    const cx = paper.w / 2;
+    const cy = paper.h / 2;
+    p.push(`<text x="${cx}" y="${cy + 14}" font-size="42" font-weight="bold" `
+      + `fill="#000" fill-opacity="0.07" text-anchor="middle" `
+      + `transform="rotate(-33 ${cx} ${cy})">SAMPLE</text>`);
+  }
+
   // Header.
   const left = GEOM.leftMargin;
   const right = paper.w - GEOM.leftMargin;
@@ -97,7 +110,8 @@ export function renderPageSvg(opts) {
   }
   p.push(textLines(header.titleLines, header.textLeft, header.titleY, FONT.titleLineH,
     `font-size="${FONT.title}" font-weight="bold" fill="#000"`));
-  p.push(`<text x="${right}" y="${header.titleY}" font-size="${FONT.pageLabel}" fill="#000" text-anchor="end">OFFICIAL BALLOT`
+  p.push(`<text x="${right}" y="${header.titleY}" font-size="${FONT.pageLabel}" fill="#000" text-anchor="end">`
+    + (sample ? 'SAMPLE BALLOT' : 'OFFICIAL BALLOT')
     + (layout.pageCount > 1 ? ` - PAGE ${page.number} OF ${layout.pageCount}` : '') + `</text>`);
   p.push(textLines(header.instrLines, header.textLeft, header.instrY, FONT.instrLineH,
     `font-size="${FONT.instr}" fill="#444"`));
@@ -134,16 +148,24 @@ export function renderPageSvg(opts) {
     }
   }
 
-  // Footer: QR left, ballot code right.
-  const payload = qrPayload(electionIdCode, code, page.number, layout.pageCount);
-  p.push(qrSvg(payload, layout.qr.x, layout.qr.y, layout.qr.size));
+  // Footer: QR left, ballot code right. Samples get neither, just a
+  // plain statement of what they are.
   const fy = paper.h - 32;
-  p.push(`<text x="${right}" y="${fy}" font-size="5.4" font-weight="bold" font-family="monospace" `
-    + `text-anchor="end" fill="#000">${esc(code)}</text>`);
-  p.push(`<text x="${right}" y="${fy + 5.5}" font-size="3.2" font-family="monospace" text-anchor="end" fill="#333">`
-    + `ELECTION ${esc(groupCode(electionIdCode))}</text>`);
-  p.push(`<text x="${right}" y="${fy + 10}" font-size="2.6" text-anchor="end" fill="#888">`
-    + `Keep this code private until scanned. Ocellus STAR ballot.</text>`);
+  if (sample) {
+    p.push(`<text x="${right}" y="${fy}" font-size="5.4" font-weight="bold" `
+      + `text-anchor="end" fill="#000">SAMPLE BALLOT</text>`);
+    p.push(`<text x="${right}" y="${fy + 5.5}" font-size="3.2" text-anchor="end" fill="#333">`
+      + `For practice only. Votes on this page cannot be scanned or counted.</text>`);
+  } else {
+    const payload = qrPayload(electionIdCode, code, page.number, layout.pageCount);
+    p.push(qrSvg(payload, layout.qr.x, layout.qr.y, layout.qr.size));
+    p.push(`<text x="${right}" y="${fy}" font-size="5.4" font-weight="bold" font-family="monospace" `
+      + `text-anchor="end" fill="#000">${esc(code)}</text>`);
+    p.push(`<text x="${right}" y="${fy + 5.5}" font-size="3.2" font-family="monospace" text-anchor="end" fill="#333">`
+      + `ELECTION ${esc(groupCode(electionIdCode))}</text>`);
+    p.push(`<text x="${right}" y="${fy + 10}" font-size="2.6" text-anchor="end" fill="#888">`
+      + `Keep this code private until scanned. Ocellus STAR ballot.</text>`);
+  }
 
   p.push('</svg>');
   return p.join('\n');
@@ -152,4 +174,16 @@ export function renderPageSvg(opts) {
 // All pages for one ballot serial.
 export function renderBallotSvgs(opts) {
   return opts.layout.pages.map((page) => renderPageSvg({ ...opts, page }));
+}
+
+// A sample ballot for voter education: watermarked, no serial, no QR,
+// candidates in their designed order rather than a per-ballot shuffle.
+export function renderSampleSvgs({ election, layout }) {
+  const orders = {};
+  for (const race of election.races) {
+    orders[race.id] = race.candidates.map((_, i) => i);
+  }
+  return layout.pages.map((page) => renderPageSvg({
+    election, layout, page, orders, sample: true,
+  }));
 }

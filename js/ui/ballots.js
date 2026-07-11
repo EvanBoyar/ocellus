@@ -4,7 +4,7 @@ import { el, clear } from './dom.js';
 import { navTabs } from '../app.js';
 import { readyToPrint } from '../model/election.js';
 import { ballotCode, candidateOrder, allocateBatch } from '../model/ballotid.js';
-import { renderBallotSvgs } from '../model/render.js';
+import { renderBallotSvgs, renderSampleSvgs } from '../model/render.js';
 
 // Print history lives on the entry as batches of {start, count}.
 // Devices that printed with older sequential versions get their old
@@ -91,6 +91,18 @@ export async function renderBallots(root, ctx) {
     }
   });
 
+  // Sample ballots for voter education. No serial is drawn and the
+  // print history is untouched.
+  const sampleBtn = el('button', { class: 'btn-quiet' }, 'Print a sample ballot');
+  sampleBtn.addEventListener('click', () => {
+    const printRoot = document.getElementById('print-root');
+    clear(printRoot);
+    for (const svg of renderSampleSvgs({ election: ctx.election, layout: ctx.layout })) {
+      printRoot.append(el('div', { class: 'print-page', html: svg }));
+    }
+    window.print();
+  });
+
   root.append(
     el('div', { class: 'card' },
       el('label', { class: 'field' },
@@ -103,6 +115,15 @@ export async function renderBallots(root, ctx) {
         + 'unused ballots are harmless, and spoiled ones can be replaced.'),
       printBtn,
       status,
+    ),
+    el('div', { class: 'card' },
+      el('h3', {}, 'Sample ballot'),
+      el('p', { class: 'meta' },
+        'A practice copy to show voters before the meeting, or to pin up at '
+        + 'the sign-in table. It is watermarked SAMPLE, has no ballot code '
+        + 'and no QR square, and cannot be scanned into the count. '
+        + 'Candidates appear in their designed order.'),
+      sampleBtn,
     ),
     el('h2', {}, 'Preview'),
     preview,

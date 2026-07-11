@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { newElection, addRace, addQuestion, electionId } from '../js/model/election.js';
 import { ballotCode, candidateOrder } from '../js/model/ballotid.js';
 import { layoutPages, pageBubbles, qrPayload, parseQrPayload, GEOM } from '../js/model/layout.js';
-import { renderBallotSvgs, qrModules } from '../js/model/render.js';
+import { renderBallotSvgs, renderSampleSvgs, qrModules } from '../js/model/render.js';
 
 async function bigElection() {
   const e = newElection('Annual Meeting');
@@ -228,6 +228,28 @@ test('ballot pages render to valid-looking svg with all candidates', async () =>
     assert.ok(svg.endsWith('</svg>'));
     assert.equal((svg.match(/<svg/g) || []).length, 1);
   }
+});
+
+test('sample ballots are watermarked and carry no code or qr', async () => {
+  const e = await bigElection();
+  const layout = layoutPages(e);
+  const svgs = renderSampleSvgs({ election: e, layout });
+  assert.equal(svgs.length, layout.pageCount);
+  for (const svg of svgs) {
+    assert.ok(svg.includes('>SAMPLE<'), 'watermark missing');
+    assert.ok(svg.includes('SAMPLE BALLOT'), 'header label missing');
+    assert.ok(!svg.includes('OFFICIAL BALLOT'));
+    assert.ok(!svg.includes('Keep this code private'));
+    assert.ok(!svg.includes('ELECTION '));
+  }
+  // The ballot content itself is the real thing: same geometry, all
+  // candidates, in designed order.
+  const all = svgs.join('');
+  for (const name of e.races[0].candidates) {
+    assert.ok(all.includes('>' + name + '<'), 'missing candidate ' + name);
+  }
+  const pos = (n) => all.indexOf('>Candidate ' + n + '<');
+  assert.ok(pos(1) < pos(2) && pos(2) < pos(3), 'sample should use designed order');
 });
 
 test('randomized ballots show different name order for different serials', async () => {
