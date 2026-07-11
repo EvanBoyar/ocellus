@@ -106,6 +106,10 @@ export async function detectPage(image, ctx) {
   const page = layout.pages[payload.page - 1];
   if (!page) return { error: 'QR page number out of range.' };
 
+  // No explicit distance gate is needed: the QR stops decoding well
+  // before the page gets too small to read bubbles, so any frame
+  // that reaches this point has workable resolution.
+
   // Sample each bubble at its center and at four slight offsets, and
   // keep the darkest reading. Checkmarks and dots rarely sit dead
   // center, and slightly bent paper shifts the projected centers by a

@@ -75,29 +75,66 @@ export async function renderScan(root, ctx) {
   let busy = false;
   let lastError = '';
 
+  // Frame agreement: a single frame can pass the QR and mark checks
+  // while motion-blurred mid-pan and read real marks as blank. The
+  // review only opens after three consecutive frames read the exact
+  // same serial, page, and marks; any disagreement or failed frame
+  // starts the run over. Spoil handling only needs the ballot code,
+  // which the QR guarantees, so it stays single-frame.
+  const AGREE_FRAMES = 3;
+  let pendingSig = null;
+  let agreeCount = 0;
+
+  const scanSignature = (res) =>
+    res.serial + '|' + res.page + '|' + JSON.stringify(res.votesByRow) + '|' + JSON.stringify(res.questions);
+
   const handleFrame = async (frame) => {
     if (busy) return;
     const res = await detectPage(frame, {
       election: ctx.election, electionIdCode: ctx.eid, layout: ctx.layout, jsQR: window.jsQR,
     });
     if (res.error) {
-      if (!res.transient && res.error !== lastError) {
+      pendingSig = null;
+      agreeCount = 0;
+      if (res.guidance || (!res.transient && res.error !== lastError)) {
         statusBar.textContent = res.error;
         lastError = res.error;
       }
       return;
     }
     lastError = '';
-    busy = true;
     if (spoilMode) {
+      busy = true;
+      pendingSig = null;
+      agreeCount = 0;
       showSpoilConfirm(res);
-    } else if (ctx.session.spoiled.includes(res.serial)) {
+      return;
+    }
+    if (ctx.session.spoiled.includes(res.serial)) {
       // Tell the official up front, before any review, and stay on
       // this notice until they dismiss it themselves.
+      busy = true;
+      pendingSig = null;
+      agreeCount = 0;
       showSpoiledNotice(res.ballotCode);
-    } else {
-      showReview(res, [res.page]);
+      return;
     }
+    const sig = scanSignature(res);
+    if (sig !== pendingSig) {
+      pendingSig = sig;
+      agreeCount = 1;
+    } else {
+      agreeCount += 1;
+    }
+    if (agreeCount < AGREE_FRAMES) {
+      statusBar.textContent = 'Hold steady, confirming the read ('
+        + agreeCount + ' of ' + AGREE_FRAMES + ')...';
+      return;
+    }
+    busy = true;
+    pendingSig = null;
+    agreeCount = 0;
+    showReview(res, [res.page]);
   };
 
   function showSpoiledNotice(code) {

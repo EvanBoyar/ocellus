@@ -299,6 +299,25 @@ test('rejects a forged ballot code even with matching election id', async () => 
   assert.match(res.error, /verification/i);
 });
 
+test('a page too small in frame fails safely as transient', async () => {
+  const election = await smallElection();
+  const layout = layoutPages(election);
+  const eid = await electionId(election);
+  const code = await ballotCode(election, 3);
+  // The ballot occupies only a small patch of the image. The QR is
+  // the strictest resolution gate, so this must fail transiently
+  // (keep scanning) rather than misread bubbles at low resolution.
+  const image = makeImage(900, 1160, 225);
+  rasterPage({
+    election, layout, page: layout.pages[0], electionIdCode: eid,
+    ballotCodeStr: code, image,
+    quad: [{ x: 300, y: 400 }, { x: 590, y: 405 }, { x: 585, y: 780 }, { x: 295, y: 775 }],
+  });
+  const res = await detectPage(image, { election, electionIdCode: eid, layout, jsQR });
+  assert.ok(res.error, 'small page must be refused');
+  assert.ok(res.transient, 'must be transient so scanning continues');
+});
+
 test('reports no QR when pointed at blank paper', async () => {
   const election = await smallElection();
   const layout = layoutPages(election);
