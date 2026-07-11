@@ -9,8 +9,11 @@ function card(title, ...body) {
   );
 }
 
-export function renderHelp(root) {
+export function renderHelp(root, goBack) {
   root.append(
+    el('div', { style: 'margin-top: 6px;' },
+      el('button', { class: 'btn-quiet btn-small', onclick: goBack }, 'Back'),
+    ),
     el('h1', {}, 'How to run an election'),
     el('p', { class: 'sub' },
       'Ocellus prints paper STAR voting ballots, scans them with the camera, and tallies the results. '

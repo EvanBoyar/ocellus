@@ -22,6 +22,18 @@ if ('serviceWorker' in navigator) {
 const screenEl = document.getElementById('screen');
 let teardown = null;
 
+// The help screen remembers where you came from: the ? button
+// toggles (tap again to leave), and the Back button on the screen
+// returns to the same place.
+const helpBtn = document.querySelector('.help-btn');
+let helpReturnHash = '#/';
+helpBtn.addEventListener('click', (ev) => {
+  if ((location.hash || '#/').replace(/^#\//, '').split('/')[0] === 'help') {
+    ev.preventDefault();
+    location.hash = helpReturnHash;
+  }
+});
+
 // Loads everything a per-election screen needs and keeps it saved.
 async function loadCtx(id) {
   const entry = getEntry(id);
@@ -85,12 +97,16 @@ async function route() {
   const hash = location.hash || '#/';
   const parts = hash.replace(/^#\//, '').split('/').filter(Boolean);
 
+  const onHelp = parts[0] === 'help';
+  helpBtn.classList.toggle('active', onHelp);
+  if (!onHelp) helpReturnHash = hash;
+
   if (parts.length === 0) {
     renderHome(screenEl);
     return;
   }
-  if (parts[0] === 'help') {
-    renderHelp(screenEl);
+  if (onHelp) {
+    renderHelp(screenEl, () => { location.hash = helpReturnHash; });
     return;
   }
   if (parts[0] === 'e' && parts[1]) {

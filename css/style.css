@@ -72,6 +72,11 @@ html, body {
   font-weight: 700;
 }
 .help-btn:hover { background: rgba(255, 255, 255, 0.15); }
+.help-btn.active {
+  background: #fff;
+  color: var(--teal);
+  border-color: #fff;
+}
 
 .screen {
   max-width: 720px;
