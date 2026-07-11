@@ -76,8 +76,20 @@ html, body {
 .screen {
   max-width: 720px;
   margin: 0 auto;
-  padding: 16px 14px 90px;
+  padding: 10px 14px 90px;
 }
+
+.crumbs {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 2px 0 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.crumbs a { color: var(--teal); font-weight: 600; text-decoration: none; }
+.crumbs a:hover { text-decoration: underline; }
+.crumb-sep { margin: 0 6px; opacity: 0.6; }
 
 h1 { font-size: 1.35rem; margin: 10px 0 4px; }
 h2 { font-size: 1.1rem; margin: 20px 0 8px; }

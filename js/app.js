@@ -51,6 +51,9 @@ async function loadCtx(id) {
   };
 }
 
+// Breadcrumb up to the elections list, then tabs for the four views
+// of this election. The list is a level up, not a sibling view, so
+// it gets a labeled link instead of a tab.
 export function navTabs(ctx, active) {
   const tabs = [
     ['design', 'Design'],
@@ -58,12 +61,18 @@ export function navTabs(ctx, active) {
     ['scan', 'Scan'],
     ['results', 'Results'],
   ];
-  return el('nav', { class: 'tabs' },
-    el('a', { href: '#/' }, 'Elections'),
-    ...tabs.map(([slug, label]) => el('a', {
-      class: active === slug ? 'active' : '',
-      href: '#/e/' + ctx.entry.id + '/' + slug,
-    }, label)),
+  return el('div', {},
+    el('div', { class: 'crumbs' },
+      el('a', { href: '#/' }, 'Elections'),
+      el('span', { class: 'crumb-sep' }, '/'),
+      el('span', {}, ctx.election.title.trim() || 'Untitled election'),
+    ),
+    el('nav', { class: 'tabs' },
+      ...tabs.map(([slug, label]) => el('a', {
+        class: active === slug ? 'active' : '',
+        href: '#/e/' + ctx.entry.id + '/' + slug,
+      }, label)),
+    ),
   );
 }
 
