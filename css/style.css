@@ -58,6 +58,21 @@ html, body {
 .heart svg { transition: transform 0.15s; }
 .heart:active svg, .heart:hover svg { transform: scale(1.2); }
 
+.help-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
+  color: #fff;
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.help-btn:hover { background: rgba(255, 255, 255, 0.15); }
+
 .screen {
   max-width: 720px;
   margin: 0 auto;
@@ -125,30 +140,44 @@ label.field > span { display: block; margin-bottom: 4px; color: var(--muted); }
 label.check { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; margin: 8px 0; }
 label.check input { width: auto; }
 
+/* One unbroken baseline on the container, edge to edge. The selected
+   tab drops 2px lower and paints its segment of the line in the page
+   background color, opening it into the content below. */
+/* Tabs sit shoulder to shoulder, each drawing its own 2px segment of
+   the baseline, with small stubs extending it past both ends. The
+   selected tab's segment is transparent: one unbroken line except
+   directly under the open tab. No overlap or negative margins, so
+   nothing can clip or peek through. */
 .tabs {
-  display: flex;
-  gap: 3px;
-  border-bottom: 2px solid #b9b3a7;
+  display: inline-flex;
+  max-width: 100%;
   margin: 8px 0 6px;
   overflow-x: auto;
 }
+.tabs::before,
+.tabs::after {
+  content: '';
+  width: 6px;
+  flex-shrink: 0;
+  border-bottom: 2px solid #b9b3a7;
+}
 .tabs a {
-  padding: 8px 12px 7px;
+  padding: 8px 10px 7px;
   color: var(--muted);
   text-decoration: none;
   font-size: 0.92rem;
   white-space: nowrap;
   background: #e6e1d5;
   border: 1.5px solid #b9b3a7;
-  border-bottom: none;
+  border-bottom: 2px solid #b9b3a7;
   border-radius: 9px 9px 0 0;
 }
+.tabs a + a { margin-left: -1.5px; }
 .tabs a.active {
   color: var(--teal);
   font-weight: 700;
   background: var(--paper);
-  margin-bottom: -2px;
-  padding-bottom: 9px;
+  border-bottom-color: transparent;
 }
 .tabs a:not(.active):hover { background: #efece6; color: var(--teal-dark); }
 

@@ -7,6 +7,7 @@ import { electionId } from './model/election.js';
 import { layoutPages } from './model/layout.js';
 import { newSession } from './model/records.js';
 import { renderHome } from './ui/home.js';
+import { renderHelp } from './ui/help.js';
 import { renderDesign } from './ui/design.js';
 import { renderBallots } from './ui/ballots.js';
 import { renderScan } from './ui/scan.js';
@@ -77,6 +78,10 @@ async function route() {
 
   if (parts.length === 0) {
     renderHome(screenEl);
+    return;
+  }
+  if (parts[0] === 'help') {
+    renderHelp(screenEl);
     return;
   }
   if (parts[0] === 'e' && parts[1]) {

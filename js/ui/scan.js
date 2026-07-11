@@ -365,7 +365,7 @@ export async function renderScan(root, ctx) {
     panelEpoch += 1;
     clear(panel);
     busy = true;
-    const codeInput = el('input', { type: 'text', placeholder: 'Ballot code, like 003-K7Q2M' });
+    const codeInput = el('input', { type: 'text', placeholder: 'Ballot code, like 0K7Q2M-M9XFA' });
     const msg = el('div');
     panel.append(el('div', { class: 'card' },
       el('h3', {}, 'Enter a ballot by hand'),

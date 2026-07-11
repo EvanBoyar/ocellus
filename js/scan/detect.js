@@ -74,7 +74,11 @@ export async function detectPage(image, ctx) {
   for (const m of layout.marks) {
     const scale = localScale(rough, m.x, m.y);
     const distMm = Math.hypot(m.x - qrCenterPage.x, m.y - qrCenterPage.y);
-    const half = Math.max(2.5 * GEOM.markSize, distMm * 0.12) * scale;
+    // Generous windows: QR corner noise amplifies unpredictably when
+    // extrapolated across the page, and the integral-image search
+    // makes big windows cheap. The square-on-light template keeps
+    // nearby QR modules or text from winning.
+    const half = Math.max(4 * GEOM.markSize, distMm * 0.2) * scale;
     const c = findMarkCoarse(gray, integral, rough, m, half);
     if (!c) return { error: 'Registration marks not fully visible.', transient: true };
     coarse.push(c);

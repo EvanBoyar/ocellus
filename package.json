@@ -1,6 +1,6 @@
 {
   "name": "ocellus",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "STAR voting ballot generator, scanner, and tabulator for small clubs and organizations.",
   "private": true,
   "scripts": {

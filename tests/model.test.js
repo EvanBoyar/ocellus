@@ -79,7 +79,7 @@ test('election export/import round trips, id depends on contents', async () => {
 test('ballot codes verify and reject forgeries', async () => {
   const e = sampleElection();
   const code = await ballotCode(e, 3);
-  assert.match(code, /^[0-9A-Z]{3}-[0-9A-Z]{5}$/);
+  assert.match(code, /^[0-9A-Z]{6}-[0-9A-Z]{5}$/);
   const ok = await verifyBallotCode(e, code);
   assert.equal(ok.serial, 3);
   const lower = await verifyBallotCode(e, code.toLowerCase());
@@ -88,6 +88,46 @@ test('ballot codes verify and reject forgeries', async () => {
   assert.ok((await verifyBallotCode(e, forged)).error);
   const other = sampleElection();
   assert.ok((await verifyBallotCode(other, code)).error);
+});
+
+test('old short ballot codes still verify', async () => {
+  const { intToB32: toB32 } = await import('../js/model/codec.js');
+  const { hmacSha256: hmac } = await import('../js/model/crypt.js');
+  const { base64ToBytes: b64 } = await import('../js/model/codec.js');
+  const { bytesToB32: toB32b } = await import('../js/model/codec.js');
+  const e = sampleElection();
+  // Reconstruct what v0.0.8 printed: a 3-character serial.
+  const serial = 7;
+  const mac = await hmac(b64(e.key), 'ballot|' + serial);
+  const oldCode = toB32(serial, 3) + '-' + toB32b(mac, 5);
+  const ok = await verifyBallotCode(e, oldCode);
+  assert.equal(ok.serial, 7);
+});
+
+test('batch allocation avoids known ranges and spreads out', async () => {
+  const { allocateBatch, SERIAL_SPACE } = await import('../js/model/ballotid.js');
+  // Fresh allocations land inside the space and clear of each other.
+  const batches = [];
+  for (let i = 0; i < 50; i++) {
+    const start = allocateBatch(batches, 100);
+    assert.ok(start >= 1 && start + 100 < SERIAL_SPACE);
+    for (const b of batches) {
+      assert.ok(start + 100 <= b.start || b.start + b.count <= start,
+        'batch overlap: ' + start + ' vs ' + b.start);
+    }
+    batches.push({ start, count: 100 });
+  }
+  // Independent devices choosing randomly should not cluster at the
+  // start of the space the way sequential allocation did.
+  const starts = batches.map((b) => b.start);
+  assert.ok(Math.max(...starts) > SERIAL_SPACE / 4,
+    'allocations suspiciously clustered low: ' + Math.max(...starts));
+  // A legacy sequential range is respected.
+  const legacy = [{ start: 1, count: 500 }];
+  for (let i = 0; i < 20; i++) {
+    const start = allocateBatch(legacy, 50);
+    assert.ok(start >= 501 || start + 50 <= 1, 'collided with legacy range');
+  }
 });
 
 test('candidate order is deterministic, valid, and varies by serial', async () => {

@@ -1,6 +1,6 @@
 // Offline cache for the app shell. Bump the version whenever any
 // shipped file changes so clients pick up updates.
-const CACHE = 'ocellus-v0.0.8';
+const CACHE = 'ocellus-v0.0.9';
 
 const SHELL = [
   '.',
@@ -35,6 +35,7 @@ const SHELL = [
   'js/ui/ballots.js',
   'js/ui/scan.js',
   'js/ui/results.js',
+  'js/ui/help.js',
 ];
 
 self.addEventListener('install', (event) => {

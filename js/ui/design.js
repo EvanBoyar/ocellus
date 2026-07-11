@@ -32,7 +32,7 @@ export async function renderDesign(root, ctx) {
   };
 
   const hasScans = Object.keys(ctx.session.records).length > 0 || ctx.session.spoiled.length > 0;
-  const printed = ctx.entry.nextSerial > 1;
+  const printed = (ctx.entry.batches || []).length > 0 || ctx.entry.nextSerial > 1;
 
   root.append(navTabs(ctx, 'design'));
   root.append(el('h1', {}, 'Design'));

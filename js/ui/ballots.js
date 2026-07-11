@@ -3,8 +3,21 @@
 import { el, clear } from './dom.js';
 import { navTabs } from '../app.js';
 import { readyToPrint } from '../model/election.js';
-import { ballotCode, candidateOrder } from '../model/ballotid.js';
+import { ballotCode, candidateOrder, allocateBatch } from '../model/ballotid.js';
 import { renderBallotSvgs } from '../model/render.js';
+
+// Print history lives on the entry as batches of {start, count}.
+// Devices that printed with older sequential versions get their old
+// range 1..nextSerial-1 registered so new batches avoid it.
+function batchesOf(entry) {
+  if (!entry.batches) {
+    entry.batches = [];
+    if (entry.nextSerial > 1) {
+      entry.batches.push({ start: 1, count: entry.nextSerial - 1 });
+    }
+  }
+  return entry.batches;
+}
 
 export async function renderBallots(root, ctx) {
   root.append(navTabs(ctx, 'ballots'));
@@ -32,7 +45,9 @@ export async function renderBallots(root, ctx) {
 
   const drawPreview = async () => {
     clear(preview);
-    const serial = ctx.entry.nextSerial;
+    // Preview with a throwaway serial; real serials are drawn per
+    // print run.
+    const serial = allocateBatch(batchesOf(ctx.entry), 1);
     const svgs = await buildBallot(ctx, serial);
     const holder = el('div', { html: svgs[0] });
     preview.append(holder.firstChild);
@@ -50,19 +65,19 @@ export async function renderBallots(root, ctx) {
     try {
       const printRoot = document.getElementById('print-root');
       clear(printRoot);
-      const first = ctx.entry.nextSerial;
+      const batches = batchesOf(ctx.entry);
+      const first = allocateBatch(batches, count);
       for (let s = first; s < first + count; s++) {
         for (const svg of await buildBallot(ctx, s)) {
           const holder = el('div', { class: 'print-page', html: svg });
           printRoot.append(holder);
         }
       }
-      ctx.entry.nextSerial = first + count;
+      batches.push({ start: first, count });
       ctx.saveEntry();
       clear(status);
       status.append(el('div', { class: 'notice info' },
-        'Prepared ballots ' + first + ' through ' + (first + count - 1)
-        + '. Use your browser print dialog to print, or choose "Save as PDF".'));
+        'Prepared ' + count + ' ballots. Use your browser print dialog to print, or choose "Save as PDF".'));
       window.print();
     } finally {
       printBtn.disabled = false;
@@ -78,8 +93,9 @@ export async function renderBallots(root, ctx) {
         countInput,
       ),
       el('p', { class: 'meta' },
-        'Next ballot number: ' + ctx.entry.nextSerial
-        + '. Print a few extra; unused ballots are harmless, and spoiled ones can be replaced.'),
+        'Ballot numbers are drawn from a random range on every print run, so several officials '
+        + 'can each print ballots for this election without clashing. Print a few extra; '
+        + 'unused ballots are harmless, and spoiled ones can be replaced.'),
       printBtn,
       status,
     ),
