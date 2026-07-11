@@ -149,16 +149,20 @@ label.check input { width: auto; }
    directly under the open tab. No overlap or negative margins, so
    nothing can clip or peek through. */
 .tabs {
-  display: inline-flex;
-  max-width: 100%;
+  display: flex;
   margin: 8px 0 6px;
   overflow-x: auto;
 }
-.tabs::before,
-.tabs::after {
+.tabs::before {
   content: '';
   width: 6px;
   flex-shrink: 0;
+  border-bottom: 2px solid #b9b3a7;
+}
+.tabs::after {
+  content: '';
+  flex: 1;
+  min-width: 6px;
   border-bottom: 2px solid #b9b3a7;
 }
 .tabs a {
