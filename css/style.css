@@ -109,6 +109,7 @@ h2 { font-size: 1.1rem; margin: 20px 0 8px; }
 }
 
 .card h3 { margin: 0 0 6px; font-size: 1rem; }
+.card h4 { margin: 14px 0 4px; font-size: 0.92rem; }
 .card .meta { color: var(--muted); font-size: 0.85rem; }
 
 .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

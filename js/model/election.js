@@ -11,7 +11,10 @@
 //     the top of every page; w and h are the stored pixel size, kept
 //     so layout can compute the printed size without decoding
 //   races: [{ id: 'r1', title: 'President',
-//             candidates: ['Alice', 'Bob'], randomize: true }],
+//             candidates: ['Alice', 'Bob'], randomize: true,
+//             seats: 1, method: 'bloc' | 'pr' }],
+//     seats and method are optional (default 1 seat); method only
+//     matters when seats > 1
 //   questions: [{ id: 'q1', title: 'Adopt the new bylaws?',
 //                 labels: ['Yes', 'No'], num: 1, den: 2 }],
 // }
@@ -53,6 +56,8 @@ export function addRace(election, title) {
     title: title || '',
     candidates: [],
     randomize: true,
+    seats: 1,
+    method: 'bloc',
   };
   election.races.push(race);
   return race;
@@ -106,6 +111,12 @@ export function validateElection(e) {
   for (const r of e.races) {
     if (typeof r.id !== 'string' || typeof r.title !== 'string') return 'Malformed race.';
     if (!Array.isArray(r.candidates)) return 'Malformed race.';
+    if (r.seats != null && (!Number.isInteger(r.seats) || r.seats < 1)) {
+      return 'Malformed race seats.';
+    }
+    if (r.method != null && r.method !== 'bloc' && r.method !== 'pr') {
+      return 'Malformed race method.';
+    }
   }
   for (const q of e.questions) {
     if (typeof q.id !== 'string' || typeof q.title !== 'string') return 'Malformed question.';
@@ -130,7 +141,7 @@ export function readyToPrint(e) {
   if (validateElection(e)) return false;
   if (e.title.trim().length === 0) return false;
   return e.races.every((r) => r.title.trim().length > 0
-      && r.candidates.length >= 1
+      && r.candidates.length >= Math.max(1, r.seats || 1)
       && r.candidates.every((c) => c.trim().length > 0))
     && e.questions.every((q) => q.title.trim().length > 0);
 }

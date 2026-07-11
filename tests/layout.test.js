@@ -142,7 +142,7 @@ test('long text wraps into measured lines instead of overlapping bubbles', async
   assert.deepEqual(layout, layoutPages(e));
 });
 
-test('a logo shifts the header down and renders as an svg image', async () => {
+test('a logo sits left of the title and renders as an svg image', async () => {
   const e = await bigElection();
   const plain = layoutPages(e);
   // A 1x1 transparent PNG; real logos are bigger but the geometry only
@@ -154,9 +154,14 @@ test('a logo shifts the header down and renders as an svg image', async () => {
   const layout = layoutPages(e);
   const box = layout.header.logo;
   assert.ok(box, 'layout should place the logo');
-  assert.ok(box.w <= 60.01 && box.h <= 18.01, 'logo scaled to fit its box');
+  assert.equal(box.x, GEOM.leftMargin, 'logo starts at the left margin');
+  assert.ok(box.w <= 45.01 && box.h <= 16.01, 'logo scaled to fit its box');
   assert.ok(Math.abs(box.w / box.h - 300 / 90) < 0.01, 'aspect ratio preserved');
-  assert.ok(layout.contentTop > plain.contentTop, 'content moves down under the logo');
+  assert.ok(layout.header.textLeft > GEOM.leftMargin + box.w,
+    'title indents past the logo');
+  // Indenting the text past the logo can wrap the instructions, which
+  // pushes the content area down; it must never move up.
+  assert.ok(layout.contentTop >= plain.contentTop);
   assert.deepEqual(layout, layoutPages(e));
 
   const eid = await electionId(e);

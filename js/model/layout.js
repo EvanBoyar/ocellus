@@ -51,7 +51,7 @@ export const FONT = {
   pageLabel: 3.6,
 };
 
-export const LOGO_BOX = { maxW: 60, maxH: 18 };
+export const LOGO_BOX = { maxW: 45, maxH: 16 };
 
 export const INSTRUCTIONS = 'Fill bubbles completely with dark ink. '
   + 'Score each candidate 0 (oppose) to 5 (strongest support). '
@@ -95,32 +95,37 @@ function blockTitleMaxWidth(cols) {
 }
 
 // The page header: optional logo, election title, instructions, rule.
-// The right side of the first title line is reserved for the
-// "OFFICIAL BALLOT - PAGE X OF Y" label at its widest.
+// The logo sits at the left margin like a letterhead seal, with the
+// title and instructions indented past it. The right side of the
+// first title line is reserved for the "OFFICIAL BALLOT - PAGE X OF Y"
+// label at its widest. Indenting the text column can wrap the title
+// or instructions onto extra lines, so adding a logo may move the
+// content area down; the layout stays deterministic either way.
 function layoutHeader(election, paper) {
   const left = GEOM.leftMargin;
   const reserve = textWidth('OFFICIAL BALLOT - PAGE 88 OF 88', FONT.pageLabel) + 4;
-  const titleMaxW = paper.w - 2 * left - reserve;
 
   let logo = null;
-  let titleY = 16; // first title baseline, LAYOUT_VERSION 1 position
+  let textLeft = left;
   if (election.logo) {
     const s = Math.min(LOGO_BOX.maxW / election.logo.w, LOGO_BOX.maxH / election.logo.h);
     const w = election.logo.w * s;
     const h = election.logo.h * s;
-    logo = { x: (paper.w - w) / 2, y: 6, w, h };
-    titleY = 6 + h + 3 + FONT.title;
+    logo = { x: left, y: 7, w, h };
+    textLeft = left + w + 5;
   }
 
-  const titleLines = wrapLines(election.title, FONT.title, titleMaxW,
-    { bold: true, maxLines: 3 });
+  const titleY = 16; // first title baseline, LAYOUT_VERSION 1 position
+  const titleLines = wrapLines(election.title, FONT.title,
+    paper.w - left - reserve - textLeft, { bold: true, maxLines: 3 });
   const lastTitleY = titleY + (titleLines.length - 1) * FONT.titleLineH;
-  const instrLines = wrapLines(INSTRUCTIONS, FONT.instr, paper.w - 2 * left,
-    { maxLines: 2 });
+  const instrLines = wrapLines(INSTRUCTIONS, FONT.instr,
+    paper.w - left - textLeft, { maxLines: 2 });
   const instrY = lastTitleY + 6.5;
-  const ruleY = instrY + (instrLines.length - 1) * FONT.instrLineH + 3.5;
+  const textBottom = instrY + (instrLines.length - 1) * FONT.instrLineH + 3.5;
+  const ruleY = Math.max(textBottom, logo ? logo.y + logo.h + 3 : 0);
   return {
-    logo, titleY, titleLines, instrY, instrLines, ruleY,
+    logo, textLeft, titleY, titleLines, instrY, instrLines, ruleY,
     contentTop: ruleY + 8,
   };
 }

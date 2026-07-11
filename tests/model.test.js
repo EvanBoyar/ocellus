@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 
 import { bytesToB32, intToB32, b32ToInt, normalizeB32, canonicalJson, packString, unpackString, groupCode } from '../js/model/codec.js';
 import { sha256, hmacSha256, shortHash, randomBytes } from '../js/model/crypt.js';
-import { newElection, addRace, addQuestion, electionId, exportElection, importElection, readyToPrint } from '../js/model/election.js';
+import { newElection, addRace, addQuestion, electionId, exportElection, importElection, readyToPrint, validateElection } from '../js/model/election.js';
 import { ballotCode, verifyBallotCode, candidateOrder, invertOrder } from '../js/model/ballotid.js';
-import { tallyRace, tallyQuestion } from '../js/model/star.js';
+import { tallyRace, tallySeats, tallyQuestion } from '../js/model/star.js';
 import { newSession, mergeScan, spoilBallot, mergeSessions, isComplete, incompleteSerials } from '../js/model/records.js';
 import { integrityCode } from '../js/model/eic.js';
 import { exportResults, importResults } from '../js/model/share.js';
@@ -400,4 +400,101 @@ test('merging sessions is idempotent for the EIC', async () => {
   mergeSessions(b, JSON.parse(JSON.stringify(a)));
   mergeSessions(b, JSON.parse(JSON.stringify(a)));
   assert.equal(await integrityCode(a), await integrityCode(b));
+});
+
+test('tallySeats with one seat is plain STAR, runoff included', () => {
+  const race = { candidates: ['A', 'B'], seats: 1, method: 'pr' };
+  // A leads on score but B wins the runoff; a one-seat race must use
+  // full STAR no matter which method is set.
+  const ballots = [[5, 0], [3, 4], [3, 4], [3, 4]];
+  const res = tallySeats(race, ballots);
+  assert.equal(res.method, 'star');
+  assert.deepEqual(res.winners, [1]);
+  assert.equal(res.rounds.length, 1);
+  assert.equal(res.rounds[0].result.winner, 1);
+});
+
+test('bloc STAR seats winners one round at a time', () => {
+  const race = { candidates: ['A', 'B', 'C', 'D'], seats: 2, method: 'bloc' };
+  const ballots = [
+    [5, 4, 1, 0],
+    [5, 4, 0, 1],
+    [4, 5, 1, 0],
+    [0, 1, 5, 4],
+    [1, 0, 4, 5],
+  ];
+  const res = tallySeats(race, ballots);
+  assert.equal(res.method, 'bloc');
+  assert.equal(res.tie, false);
+  // The majority slate takes both seats: A first, then B.
+  assert.deepEqual(res.winners, [0, 1]);
+  assert.equal(res.rounds.length, 2);
+  // Round two runs without the first winner.
+  assert.deepEqual(res.rounds[1].members, [1, 2, 3]);
+  const layout2 = res.rounds[1].result;
+  assert.equal(res.rounds[1].members[layout2.winner], 1);
+});
+
+test('bloc STAR stops at an unbreakable tie', () => {
+  const race = { candidates: ['A', 'B'], seats: 2, method: 'bloc' };
+  const res = tallySeats(race, [[3, 3], [2, 2]]);
+  assert.equal(res.tie, true);
+  assert.deepEqual(res.winners, []);
+  assert.ok(res.notes[0].includes('Seat 1'));
+});
+
+test('STAR-PR splits seats proportionally between blocs', () => {
+  // 18 old guard ballots (G1=5, G2=4) and 12 newcomer ballots (N1=5,
+  // N2=4), 3 seats, quota 10. Bloc STAR would sweep G1, G2, G3; the
+  // proportional count must give the 40% bloc its seat.
+  const race = { candidates: ['G1', 'G2', 'N1', 'N2'], seats: 3, method: 'pr' };
+  const ballots = [];
+  for (let i = 0; i < 18; i++) ballots.push([5, 4, 0, 0]);
+  for (let i = 0; i < 12; i++) ballots.push([0, 0, 5, 4]);
+  const res = tallySeats(race, ballots);
+  assert.equal(res.method, 'pr');
+  assert.equal(res.tie, false);
+  assert.deepEqual(res.winners, [0, 2, 1]); // G1, then N1, then G2
+  // After G1 takes seat 1, a quota of 10 is spent from the 18 ballots
+  // that scored G1 top: each keeps weight 8/18, so G2's weighted score
+  // is 18 * 8/18 * 4 = 32 against N1's untouched 60.
+  assert.deepEqual(res.rounds[1].totals, [32, 60, 48]);
+  assert.equal(res.rounds[1].winner, 2);
+  // Seat 3: newcomers spend their quota (each keeps 2/12), leaving
+  // N2 with 12 * 2/12 * 4 = 8 against G2's 32.
+  assert.deepEqual(res.rounds[2].totals, [32, 8]);
+  assert.equal(res.rounds[2].winner, 1);
+});
+
+test('STAR-PR spends fractions exactly, no rounding drift', () => {
+  // 7 ballots, 2 seats: quota 7/2. All 7 score A=5, so each keeps
+  // exactly 1 - (7/2)/7 = 1/2 of its weight. B and C then decide seat
+  // 2 on the reweighted ballots without any float noise.
+  const race = { candidates: ['A', 'B', 'C'], seats: 2, method: 'pr' };
+  const ballots = [];
+  for (let i = 0; i < 7; i++) ballots.push([5, i < 4 ? 3 : 0, i < 4 ? 0 : 3]);
+  const res = tallySeats(race, ballots);
+  assert.deepEqual(res.winners, [0, 1]);
+  // Seat 2 totals: B = 4 * 1/2 * 3 = 6, C = 3 * 1/2 * 3 = 4.5.
+  assert.deepEqual(res.rounds[1].totals, [6, 4.5]);
+});
+
+test('seats and method are validated and gate printing', () => {
+  const e = newElection('Board Vote');
+  const r = addRace(e, 'Directors');
+  r.candidates = ['A', 'B'];
+  assert.equal(readyToPrint(e), true);
+  r.seats = 3;
+  assert.equal(readyToPrint(e), false, 'need at least as many candidates as seats');
+  r.candidates = ['A', 'B', 'C'];
+  assert.equal(readyToPrint(e), true);
+
+  assert.equal(validateElection(e), null);
+  r.seats = 0;
+  assert.ok(validateElection(e));
+  r.seats = 2;
+  r.method = 'borda';
+  assert.ok(validateElection(e));
+  r.method = 'pr';
+  assert.equal(validateElection(e), null);
 });

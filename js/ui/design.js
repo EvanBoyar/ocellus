@@ -12,7 +12,7 @@ const THRESHOLDS = [
 ];
 
 // Reads an image file and downscales it for the ballot header. The
-// printed box tops out at 60x18mm, so 600x180 pixels is about 250 dpi
+// printed box tops out at 45x16mm, so 600x180 pixels is about 300 dpi
 // on paper. PNG keeps line art and transparency crisp; JPEG usually
 // wins for photos; whichever encodes smaller is stored.
 async function loadLogo(file) {
@@ -112,7 +112,7 @@ export async function renderDesign(root, ctx) {
   // Optional graphic printed at the top of every ballot page. Stored
   // downscaled so the share string stays a reasonable size.
   const logoBox = el('div', { class: 'field' },
-    el('span', {}, 'Ballot graphic (optional, printed at the top of every page)'));
+    el('span', {}, 'Ballot graphic (optional, printed beside the title on every page)'));
   const drawLogo = () => {
     while (logoBox.childNodes.length > 1) logoBox.lastChild.remove();
     if (e.logo) {
@@ -146,7 +146,14 @@ export async function renderDesign(root, ctx) {
     });
     logoBox.append(fileInput,
       el('p', { class: 'meta' },
-        'A logo or seal. It is resized automatically to fit the ballot header.'));
+        'A logo or seal. It keeps its proportions and is scaled to fit a '
+        + '45 by 16 mm space beside the title: a squarish seal uses the full '
+        + '16 mm height, while a wide banner is capped at 45 mm across and '
+        + 'comes out shorter. Transparent backgrounds stay transparent, and '
+        + 'the graphic is part of the election design, so officials you share '
+        + 'it with print the same ballots. Note that the image makes the '
+        + 'share string much longer: thousands of characters instead of a '
+        + 'few hundred.'));
   };
   drawLogo();
   root.append(logoBox);
@@ -186,6 +193,32 @@ export async function renderDesign(root, ctx) {
       };
       addInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') addCand(); });
 
+      // Seats to fill; blank means one. The method choice only exists
+      // for multi-seat races, so the picker hides at one seat.
+      const methodSel = el('select', {},
+        el('option', { value: 'bloc' }, 'Bloc STAR: the group\'s overall favorites win'),
+        el('option', { value: 'pr' }, 'Proportional (STAR-PR): seats split among voting blocs'),
+      );
+      methodSel.value = race.method === 'pr' ? 'pr' : 'bloc';
+      methodSel.addEventListener('change', () => { race.method = methodSel.value; persist(); });
+      const methodField = el('label', { class: 'field' },
+        el('span', {}, 'How seats are awarded'), methodSel);
+      const showMethod = () => {
+        methodField.style.display = (race.seats || 1) > 1 ? '' : 'none';
+      };
+      showMethod();
+      const seatsInput = el('input', {
+        type: 'number', min: '1', max: '20',
+        placeholder: '1',
+        value: (race.seats || 1) > 1 ? String(race.seats) : '',
+        oninput: (ev) => {
+          const v = Math.floor(Number(ev.target.value));
+          race.seats = Number.isFinite(v) && v >= 1 ? Math.min(v, 20) : 1;
+          persist();
+          showMethod();
+        },
+      });
+
       racesBox.append(el('div', { class: 'card' },
         el('div', { class: 'row space' },
           el('input', {
@@ -208,6 +241,10 @@ export async function renderDesign(root, ctx) {
         candBox,
         el('div', { class: 'row', style: 'margin-top: 8px;' }, addInput,
           el('button', { class: 'btn-small', onclick: addCand }, 'Add')),
+        el('label', { class: 'field' },
+          el('span', {}, 'Seats to fill (1 if blank; e.g. 3 to elect three board members)'),
+          seatsInput),
+        methodField,
         el('label', { class: 'check' },
           (() => {
             const cb = el('input', { type: 'checkbox' });

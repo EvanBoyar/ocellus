@@ -95,11 +95,11 @@ export function renderPageSvg(opts) {
       + `width="${header.logo.w.toFixed(2)}" height="${header.logo.h.toFixed(2)}" `
       + `preserveAspectRatio="xMidYMid meet" href="${esc(election.logo.data)}"/>`);
   }
-  p.push(textLines(header.titleLines, left, header.titleY, FONT.titleLineH,
+  p.push(textLines(header.titleLines, header.textLeft, header.titleY, FONT.titleLineH,
     `font-size="${FONT.title}" font-weight="bold" fill="#000"`));
   p.push(`<text x="${right}" y="${header.titleY}" font-size="${FONT.pageLabel}" fill="#000" text-anchor="end">OFFICIAL BALLOT`
     + (layout.pageCount > 1 ? ` - PAGE ${page.number} OF ${layout.pageCount}` : '') + `</text>`);
-  p.push(textLines(header.instrLines, left, header.instrY, FONT.instrLineH,
+  p.push(textLines(header.instrLines, header.textLeft, header.instrY, FONT.instrLineH,
     `font-size="${FONT.instr}" fill="#444"`));
   p.push(`<line x1="${left}" y1="${header.ruleY}" x2="${right}" y2="${header.ruleY}" stroke="#000" stroke-width="0.4"/>`);
 

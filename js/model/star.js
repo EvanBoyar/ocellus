@@ -6,6 +6,11 @@
 // scores express no preference. Ties are broken the way the STAR
 // Voting Project recommends for simple elections: score-round ties by
 // head-to-head preferences, runoff ties by score totals.
+//
+// Multi-winner races go through tallySeats, which awards seats either
+// by Bloc STAR (STAR repeated, removing each winner; the group's
+// overall favorites) or STAR-PR Allocated Score (proportional; each
+// seat spends a quota of its supporters' ballot weight).
 
 // `ballots` is an array of score arrays indexed by canonical
 // candidate index; entries are integers 0-5 (missing/null = 0).
@@ -152,6 +157,197 @@ function resolvePool(pool, count, prefs, stats, notes) {
   }
   return seated;
 }
+
+// Multi-winner tally. Reads race.seats (default 1) and race.method
+// ('bloc' default, or 'pr'). Returns:
+// { seats, method: 'star'|'bloc'|'pr', winners: [canonical indices in
+//   seat order], rounds, tie, notes, ballotCount, quota? }
+// One seat is always plain STAR regardless of method; the method only
+// chooses how additional seats are awarded.
+export function tallySeats(race, ballots) {
+  const seats = Number.isInteger(race.seats) && race.seats > 1 ? race.seats : 1;
+  if (seats === 1) {
+    const r = tallyRace(race, ballots);
+    return {
+      seats: 1,
+      method: 'star',
+      winners: r.winner === null ? [] : [r.winner],
+      rounds: [{ members: race.candidates.map((_, i) => i), result: r }],
+      tie: r.tie,
+      notes: r.notes,
+      ballotCount: ballots.length,
+    };
+  }
+  return race.method === 'pr'
+    ? tallyAllocatedScore(race, ballots, seats)
+    : tallyBloc(race, ballots, seats);
+}
+
+// Bloc STAR: plain STAR once per seat, removing each winner. Every
+// round is hand-checkable with the same arithmetic as a single-winner
+// race. Rounds keep tallyRace's shape in sub-index space; `members`
+// maps a round's index i to the canonical candidate index.
+function tallyBloc(race, ballots, seats) {
+  const out = {
+    seats, method: 'bloc', winners: [], rounds: [],
+    tie: false, notes: [], ballotCount: ballots.length,
+  };
+  let remaining = race.candidates.map((_, i) => i);
+  for (let seat = 0; seat < seats && remaining.length > 0; seat++) {
+    const sub = { candidates: remaining.map((i) => race.candidates[i]) };
+    const subBallots = ballots.map((b) => remaining.map((i) => b[i]));
+    const r = tallyRace(sub, subBallots);
+    out.rounds.push({ members: remaining.slice(), result: r });
+    if (r.tie || r.winner === null) {
+      out.tie = true;
+      out.notes.push('Seat ' + (seat + 1)
+        + ' is tied; later seats cannot be decided until it is resolved.');
+      break;
+    }
+    const winner = remaining[r.winner];
+    out.winners.push(winner);
+    remaining = remaining.filter((i) => i !== winner);
+  }
+  return out;
+}
+
+// STAR-PR (Allocated Score): proportional seats. Each round the
+// highest weighted score total takes a seat, then one quota of the
+// ballots that scored that winner highest is spent, removing their
+// influence over later seats. Ballot weights are exact BigInt
+// fractions so two officials can never disagree by a rounding error.
+// Round totals are also reported as floats for display.
+function tallyAllocatedScore(race, ballots, seats) {
+  const n = race.candidates.length;
+  const out = {
+    seats, method: 'pr', winners: [], rounds: [],
+    tie: false, notes: [], ballotCount: ballots.length,
+    quota: { ballots: ballots.length, seats },
+  };
+  if (n === 0 || ballots.length === 0) return out;
+
+  // Unweighted stats for tie-breaking, same spirit as pickFinalists.
+  const plainTotals = new Array(n).fill(0);
+  const fiveStars = new Array(n).fill(0);
+  const scoredBy = new Array(n).fill(0);
+  for (const b of ballots) {
+    for (let c = 0; c < n; c++) {
+      const s = clampScore(b[c]);
+      plainTotals[c] += s;
+      if (s > 0) scoredBy[c] += 1;
+      if (s === 5) fiveStars[c] += 1;
+    }
+  }
+
+  const quota = rat(BigInt(ballots.length), BigInt(seats));
+  let weights = ballots.map(() => rat(1n, 1n));
+  let remaining = race.candidates.map((_, i) => i);
+
+  for (let seat = 0; seat < seats && remaining.length > 0; seat++) {
+    const totals = new Map(remaining.map((c) => [c, rat(0n, 1n)]));
+    for (let bi = 0; bi < ballots.length; bi++) {
+      if (weights[bi].n === 0n) continue;
+      for (const c of remaining) {
+        const s = clampScore(ballots[bi][c]);
+        if (s > 0) totals.set(c, radd(totals.get(c), rmulInt(weights[bi], s)));
+      }
+    }
+    let best = [];
+    for (const c of remaining) {
+      if (best.length === 0) { best = [c]; continue; }
+      const cmp = rcmp(totals.get(c), totals.get(best[0]));
+      if (cmp > 0) best = [c];
+      else if (cmp === 0) best.push(c);
+    }
+    if (best.length > 1) {
+      best.sort((a, b) => plainTotals[b] - plainTotals[a]
+        || fiveStars[b] - fiveStars[a] || scoredBy[b] - scoredBy[a]);
+      const [a, b] = best;
+      if (plainTotals[a] === plainTotals[b] && fiveStars[a] === fiveStars[b]
+          && scoredBy[a] === scoredBy[b]) {
+        out.tie = true;
+        out.notes.push('Seat ' + (seat + 1)
+          + ' is tied between equally supported candidates.');
+        out.rounds.push(prRound(remaining, totals, null));
+        break;
+      }
+      out.notes.push('Seat ' + (seat + 1)
+        + ' tie broken by unweighted score totals.');
+    }
+    const winner = best[0];
+    out.winners.push(winner);
+    out.rounds.push(prRound(remaining, totals, winner));
+    remaining = remaining.filter((c) => c !== winner);
+    if (seat < seats - 1) spendQuota(ballots, weights, winner, quota);
+  }
+  return out;
+}
+
+function prRound(members, totals, winner) {
+  return {
+    members: members.slice(),
+    winner,
+    // Display copies, rounded to 2 decimals; the count itself never
+    // uses these.
+    totals: members.map((c) => Math.round(rtoNumber(totals.get(c)) * 100) / 100),
+  };
+}
+
+// Removes one quota of weight from the winner's supporters, strongest
+// scores first. Supporters at the boundary score level are reduced
+// fractionally so exactly a quota is spent. If the winner's whole
+// support is under a quota, all of it is spent.
+function spendQuota(ballots, weights, winner, quota) {
+  let spent = rat(0n, 1n);
+  for (let s = 5; s >= 1; s--) {
+    const level = [];
+    let levelWeight = rat(0n, 1n);
+    for (let bi = 0; bi < ballots.length; bi++) {
+      if (weights[bi].n === 0n) continue;
+      if (clampScore(ballots[bi][winner]) === s) {
+        level.push(bi);
+        levelWeight = radd(levelWeight, weights[bi]);
+      }
+    }
+    if (level.length === 0) continue;
+    const room = rsub(quota, spent);
+    if (rcmp(levelWeight, room) <= 0) {
+      for (const bi of level) weights[bi] = rat(0n, 1n);
+      spent = radd(spent, levelWeight);
+      if (rcmp(spent, quota) === 0) return;
+    } else {
+      // keep = 1 - room / levelWeight of each ballot's weight
+      const keep = rsub(rat(1n, 1n), rdiv(room, levelWeight));
+      for (const bi of level) weights[bi] = rmul(weights[bi], keep);
+      return;
+    }
+  }
+}
+
+// Exact fractions on BigInt, always reduced, denominator positive.
+function bgcd(a, b) {
+  a = a < 0n ? -a : a;
+  while (b) [a, b] = [b, a % b];
+  return a;
+}
+
+function rat(n, d) {
+  if (d < 0n) { n = -n; d = -d; }
+  const g = bgcd(n < 0n ? -n : n, d) || 1n;
+  return { n: n / g, d: d / g };
+}
+
+function radd(a, b) { return rat(a.n * b.d + b.n * a.d, a.d * b.d); }
+function rsub(a, b) { return rat(a.n * b.d - b.n * a.d, a.d * b.d); }
+function rmul(a, b) { return rat(a.n * b.n, a.d * b.d); }
+function rdiv(a, b) { return rat(a.n * b.d, a.d * b.n); }
+function rmulInt(a, k) { return rat(a.n * BigInt(k), a.d); }
+function rcmp(a, b) {
+  const x = a.n * b.d;
+  const y = b.n * a.d;
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+function rtoNumber(a) { return Number(a.n) / Number(a.d); }
 
 // Yes/no question tally. `answers` entries are 1 (yes), 0 (no), or
 // null (blank, excluded from the denominator).

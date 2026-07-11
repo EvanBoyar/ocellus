@@ -3,7 +3,7 @@
 
 import { el, clear, copyText } from './dom.js';
 import { navTabs } from '../app.js';
-import { tallyRace, tallyQuestion } from '../model/star.js';
+import { tallySeats, tallyQuestion } from '../model/star.js';
 import { integrityCode } from '../model/eic.js';
 import { exportResults, importResults } from '../model/share.js';
 import { mergeSessions, incompleteSerials } from '../model/records.js';
@@ -48,7 +48,7 @@ export async function renderResults(root, ctx) {
       const marks = session.records[String(s)].votes[race.id] || {};
       return race.candidates.map((_, c) => marks[c] ?? 0);
     });
-    const r = tallyRace(race, ballots);
+    const r = tallySeats(race, ballots);
     root.append(raceCard(race, r));
     summaryLines.push(race.title + ': ' + raceSummary(race, r));
   }
@@ -145,44 +145,148 @@ export async function renderResults(root, ctx) {
   ));
 }
 
-function raceCard(race, r) {
-  const rows = race.candidates.map((name, c) => {
-    const isFinalist = r.finalists.includes(c);
-    const isWinner = r.winner === c;
+// One STAR round as a table. `members` maps the round's index i to a
+// canonical candidate index; `r` is a tallyRace result in round space.
+// winnerLabel marks the round winner's row (WINNER, SEAT 2, ...).
+function starTable(race, members, r, winnerLabel) {
+  const rows = members.map((canon, i) => {
+    const isFinalist = r.finalists.includes(i);
+    const isWinner = r.winner === i;
     return el('tr', { class: isWinner ? 'winner' : '' },
-      el('td', {}, name + (isWinner ? ' - WINNER' : isFinalist ? ' - finalist' : '')),
-      el('td', { class: 'num' }, String(r.totals[c])),
+      el('td', {}, race.candidates[canon]
+        + (isWinner ? ' - ' + winnerLabel : isFinalist ? ' - finalist' : '')),
+      el('td', { class: 'num' }, String(r.totals[i])),
       el('td', { class: 'num' },
         r.runoff && isFinalist
-          ? String(r.finalists[0] === c ? r.runoff.forA : r.runoff.forB)
+          ? String(r.finalists[0] === i ? r.runoff.forA : r.runoff.forB)
           : ''),
     );
   });
-  return el('div', { class: 'card' },
-    el('h3', {}, race.title),
-    el('table', { class: 'results' },
-      el('thead', {}, el('tr', {},
-        el('th', {}, 'Candidate'),
-        el('th', { class: 'num' }, 'Score total'),
-        el('th', { class: 'num' }, 'Runoff votes'),
-      )),
-      el('tbody', {}, rows),
-    ),
-    r.tie ? el('div', { class: 'notice warn' }, 'This race is tied. ' + r.notes.join(' ')) : null,
-    !r.tie && r.notes.length > 0 ? el('p', { class: 'meta' }, r.notes.join(' ')) : null,
-    r.runoff ? el('p', { class: 'meta' },
-      r.runoff.noPref + ' ballots had no preference between the finalists.') : null,
+  return el('table', { class: 'results' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, 'Candidate'),
+      el('th', { class: 'num' }, 'Score total'),
+      el('th', { class: 'num' }, 'Runoff votes'),
+    )),
+    el('tbody', {}, rows),
   );
 }
 
-function raceSummary(race, r) {
-  if (r.ballotCount === 0) return 'no ballots';
-  if (r.tie || r.winner === null) return 'TIE - needs resolution';
-  const name = race.candidates[r.winner];
-  if (!r.runoff) return name + ' wins';
-  const other = r.finalists.find((f) => f !== r.winner);
-  const winVotes = r.finalists[0] === r.winner ? r.runoff.forA : r.runoff.forB;
-  const loseVotes = r.finalists[0] === r.winner ? r.runoff.forB : r.runoff.forA;
-  return name + ' wins ' + winVotes + ' to ' + loseVotes
-    + (other !== undefined ? ' over ' + race.candidates[other] : '');
+function roundNotes(r) {
+  const bits = [];
+  if (!r.tie && r.notes.length > 0) bits.push(el('p', { class: 'meta' }, r.notes.join(' ')));
+  if (r.runoff) {
+    const n = r.runoff.noPref;
+    bits.push(el('p', { class: 'meta' },
+      n + (n === 1 ? ' ballot' : ' ballots') + ' had no preference between the finalists.'));
+  }
+  return bits;
+}
+
+function winnersLine(race, res) {
+  if (res.winners.length === 0) return null;
+  const names = res.winners.map((w) => race.candidates[w]);
+  return el('p', { class: 'meta' },
+    (res.winners.length === res.seats ? 'Winners: ' : 'Seats decided so far: ')
+    + names.join(', '));
+}
+
+function raceCard(race, res) {
+  if (res.method === 'star') {
+    const round = res.rounds[0];
+    return el('div', { class: 'card' },
+      el('h3', {}, race.title),
+      starTable(race, round.members, round.result, 'WINNER'),
+      res.tie ? el('div', { class: 'notice warn' },
+        'This race is tied. ' + res.notes.join(' ')) : null,
+      ...roundNotes(round.result),
+    );
+  }
+  if (res.method === 'bloc') return blocCard(race, res);
+  return prCard(race, res);
+}
+
+// Bloc STAR: one ordinary STAR round per seat, winners removed as
+// they are seated.
+function blocCard(race, res) {
+  const kids = [
+    el('div', { class: 'row space' },
+      el('h3', {}, race.title),
+      el('span', { class: 'pill' }, res.seats + ' seats, Bloc STAR'),
+    ),
+    winnersLine(race, res),
+  ];
+  res.rounds.forEach((round, i) => {
+    const r = round.result;
+    const seatName = r.winner !== null ? race.candidates[round.members[r.winner]] : 'tied';
+    kids.push(el('h4', {}, 'Seat ' + (i + 1) + ': ' + seatName));
+    kids.push(starTable(race, round.members, r, 'SEAT ' + (i + 1)));
+    kids.push(...roundNotes(r));
+  });
+  if (res.tie) {
+    kids.push(el('div', { class: 'notice warn' },
+      'This race is tied. ' + res.notes.join(' ')));
+  }
+  return el('div', { class: 'card' }, ...kids.filter(Boolean));
+}
+
+// STAR-PR: weighted score totals per seat round, with a quota of
+// ballot weight spent for every seat filled.
+function prCard(race, res) {
+  const per = Math.round((res.quota.ballots / res.quota.seats) * 100) / 100;
+  const kids = [
+    el('div', { class: 'row space' },
+      el('h3', {}, race.title),
+      el('span', { class: 'pill' }, res.seats + ' seats, proportional'),
+    ),
+    winnersLine(race, res),
+    el('p', { class: 'meta' },
+      'Each seat spends a quota of ' + per + ' ballots of weight ('
+      + res.quota.ballots + ' ballots for ' + res.quota.seats + ' seats) from the '
+      + 'ballots that supported that winner most strongly, so remaining seats '
+      + 'reflect the rest of the voters.'),
+  ];
+  res.rounds.forEach((round, i) => {
+    const seatName = round.winner !== null ? race.candidates[round.winner] : 'tied';
+    kids.push(el('h4', {}, 'Seat ' + (i + 1) + ': ' + seatName));
+    kids.push(el('table', { class: 'results' },
+      el('thead', {}, el('tr', {},
+        el('th', {}, 'Candidate'),
+        el('th', { class: 'num' }, 'Weighted score'),
+      )),
+      el('tbody', {}, round.members.map((c, j) => el('tr',
+        { class: c === round.winner ? 'winner' : '' },
+        el('td', {}, race.candidates[c] + (c === round.winner ? ' - SEAT ' + (i + 1) : '')),
+        el('td', { class: 'num' }, String(round.totals[j])),
+      ))),
+    ));
+  });
+  if (res.tie) {
+    kids.push(el('div', { class: 'notice warn' },
+      'This race is tied. ' + res.notes.join(' ')));
+  } else if (res.notes.length > 0) {
+    kids.push(el('p', { class: 'meta' }, res.notes.join(' ')));
+  }
+  return el('div', { class: 'card' }, ...kids.filter(Boolean));
+}
+
+function raceSummary(race, res) {
+  if (res.ballotCount === 0) return 'no ballots';
+  if (res.seats === 1) {
+    const r = res.rounds[0].result;
+    if (r.tie || r.winner === null) return 'TIE - needs resolution';
+    const name = race.candidates[r.winner];
+    if (!r.runoff) return name + ' wins';
+    const other = r.finalists.find((f) => f !== r.winner);
+    const winVotes = r.finalists[0] === r.winner ? r.runoff.forA : r.runoff.forB;
+    const loseVotes = r.finalists[0] === r.winner ? r.runoff.forB : r.runoff.forA;
+    return name + ' wins ' + winVotes + ' to ' + loseVotes
+      + (other !== undefined ? ' over ' + race.candidates[other] : '');
+  }
+  const names = res.winners.map((w) => race.candidates[w]);
+  if (res.tie) {
+    return (names.length > 0 ? 'seats so far: ' + names.join(', ') + '; ' : '')
+      + 'TIE - needs resolution';
+  }
+  return 'winners: ' + names.join(', ');
 }
