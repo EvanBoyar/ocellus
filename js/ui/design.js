@@ -11,6 +11,42 @@ const THRESHOLDS = [
   { label: 'Three quarters (at least 75%)', num: 3, den: 4 },
 ];
 
+// Reads an image file and downscales it for the ballot header. The
+// printed box tops out at 60x18mm, so 600x180 pixels is about 250 dpi
+// on paper. PNG keeps line art and transparency crisp; JPEG usually
+// wins for photos; whichever encodes smaller is stored.
+async function loadLogo(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error('not a readable image'));
+      im.src = url;
+    });
+    const scale = Math.min(1, 600 / img.naturalWidth, 180 / img.naturalHeight);
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const cx = canvas.getContext('2d');
+    cx.drawImage(img, 0, 0, w, h);
+    // JPEG turns transparent pixels black, so it is only a candidate
+    // for fully opaque images.
+    const alpha = cx.getImageData(0, 0, w, h).data;
+    let opaque = true;
+    for (let i = 3; i < alpha.length; i += 4) {
+      if (alpha[i] < 255) { opaque = false; break; }
+    }
+    const png = canvas.toDataURL('image/png');
+    const jpeg = opaque ? canvas.toDataURL('image/jpeg', 0.85) : null;
+    return { data: jpeg && jpeg.length < png.length ? jpeg : png, w, h };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export async function renderDesign(root, ctx) {
   const e = ctx.election;
   let saveTimer = null;
@@ -72,6 +108,48 @@ export async function renderDesign(root, ctx) {
       return sel;
     })(),
   ));
+
+  // Optional graphic printed at the top of every ballot page. Stored
+  // downscaled so the share string stays a reasonable size.
+  const logoBox = el('div', { class: 'field' },
+    el('span', {}, 'Ballot graphic (optional, printed at the top of every page)'));
+  const drawLogo = () => {
+    while (logoBox.childNodes.length > 1) logoBox.lastChild.remove();
+    if (e.logo) {
+      logoBox.append(
+        el('div', { class: 'row' },
+          el('img', {
+            src: e.logo.data, alt: 'Ballot graphic',
+            style: 'max-height: 48px; max-width: 160px; border: 1px solid #ccc; background: #fff; padding: 2px;',
+          }),
+          el('button', {
+            class: 'btn-quiet btn-small',
+            onclick: () => { delete e.logo; persist(); drawLogo(); },
+          }, 'Remove'),
+        ),
+      );
+      return;
+    }
+    const fileInput = el('input', {
+      type: 'file', accept: 'image/*',
+      onchange: async (ev) => {
+        const file = ev.target.files && ev.target.files[0];
+        if (!file) return;
+        try {
+          e.logo = await loadLogo(file);
+          persist();
+          drawLogo();
+        } catch (err) {
+          alert('Could not read that image: ' + err.message);
+        }
+      },
+    });
+    logoBox.append(fileInput,
+      el('p', { class: 'meta' },
+        'A logo or seal. It is resized automatically to fit the ballot header.'));
+  };
+  drawLogo();
+  root.append(logoBox);
 
   const racesBox = el('div');
   const questionsBox = el('div');
@@ -157,6 +235,19 @@ export async function renderDesign(root, ctx) {
         q.den = t.den;
         persist();
       });
+      // Answer labels print next to the bubbles in place of Yes and
+      // No. Blank means the default, so the fields start empty unless
+      // a custom label was set.
+      const labelInput = (idx, def) => el('input', {
+        type: 'text',
+        value: q.labels && q.labels[idx] !== def ? q.labels[idx] : '',
+        placeholder: def,
+        oninput: (ev) => {
+          if (!Array.isArray(q.labels)) q.labels = ['Yes', 'No'];
+          q.labels[idx] = ev.target.value.trim() || def;
+          persist();
+        },
+      });
       questionsBox.append(el('div', { class: 'card' },
         el('div', { class: 'row space' },
           el('input', {
@@ -171,7 +262,15 @@ export async function renderDesign(root, ctx) {
           }, 'Remove'),
         ),
         el('label', { class: 'field' }, el('span', {}, 'Passes with'), sel),
-        el('p', { class: 'meta' }, 'Voters mark Yes or No. Blank answers do not count toward the total.'),
+        el('div', { class: 'row' },
+          el('label', { class: 'field grow' },
+            el('span', {}, 'Label for a yes vote'), labelInput(0, 'Yes')),
+          el('label', { class: 'field grow' },
+            el('span', {}, 'Label for a no vote'), labelInput(1, 'No')),
+        ),
+        el('p', { class: 'meta' },
+          'Voters mark one of the two answers. Blank answers do not count toward the total. '
+          + 'Short labels fit best; long ones wrap next to the bubble.'),
       ));
     });
   };

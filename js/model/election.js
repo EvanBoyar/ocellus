@@ -7,6 +7,9 @@
 //   title: 'Spring Board Election',
 //   key: '<base64, 16 random bytes>',   secret shared by officials
 //   paper: 'letter' | 'a4',
+//   logo: { data: 'data:image/...', w, h },   optional, printed at
+//     the top of every page; w and h are the stored pixel size, kept
+//     so layout can compute the printed size without decoding
 //   races: [{ id: 'r1', title: 'President',
 //             candidates: ['Alice', 'Bob'], randomize: true }],
 //   questions: [{ id: 'q1', title: 'Adopt the new bylaws?',
@@ -92,6 +95,14 @@ export function validateElection(e) {
   if (typeof e.title !== 'string') return 'Missing title.';
   if (typeof e.key !== 'string' || e.key.length < 16) return 'Missing key.';
   if (!Array.isArray(e.races) || !Array.isArray(e.questions)) return 'Malformed data.';
+  if (e.logo != null) {
+    if (typeof e.logo !== 'object'
+        || typeof e.logo.data !== 'string'
+        || !e.logo.data.startsWith('data:image/')
+        || !(e.logo.w > 0) || !(e.logo.h > 0)) {
+      return 'Malformed logo.';
+    }
+  }
   for (const r of e.races) {
     if (typeof r.id !== 'string' || typeof r.title !== 'string') return 'Malformed race.';
     if (!Array.isArray(r.candidates)) return 'Malformed race.';
@@ -100,6 +111,10 @@ export function validateElection(e) {
     if (typeof q.id !== 'string' || typeof q.title !== 'string') return 'Malformed question.';
     if (!Number.isInteger(q.num) || !Number.isInteger(q.den) || q.den <= 0) {
       return 'Malformed question threshold.';
+    }
+    if (q.labels != null && (!Array.isArray(q.labels) || q.labels.length !== 2
+        || q.labels.some((l) => typeof l !== 'string' || l.trim().length === 0))) {
+      return 'Malformed question labels.';
     }
   }
   if (e.races.length === 0 && e.questions.length === 0) {

@@ -427,7 +427,7 @@ function sampleDisk(gray, center, radius) {
 function samplePaper(gray, H, layout) {
   const { paper } = layout;
   const xs = [paper.w * 0.5, paper.w * 0.28, paper.w * 0.72];
-  const ys = [GEOM.contentTop - 5, paper.h - GEOM.footerReserve + 8, paper.h * 0.5];
+  const ys = [layout.contentTop - 5, paper.h - GEOM.footerReserve + 8, paper.h * 0.5];
   const samples = [];
   for (const px of xs) {
     for (const py of ys) {

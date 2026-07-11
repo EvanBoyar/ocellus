@@ -41,7 +41,7 @@ export async function renderBallots(root, ctx) {
     placeholder: String(DEFAULT_COUNT),
   });
   const status = el('div');
-  const preview = el('div', { class: 'ballot-preview' });
+  const preview = el('div');
 
   const drawPreview = async () => {
     clear(preview);
@@ -49,8 +49,13 @@ export async function renderBallots(root, ctx) {
     // print run.
     const serial = allocateBatch(batchesOf(ctx.entry), 1);
     const svgs = await buildBallot(ctx, serial);
-    const holder = el('div', { html: svgs[0] });
-    preview.append(holder.firstChild);
+    svgs.forEach((svg, i) => {
+      if (svgs.length > 1) {
+        preview.append(el('p', { class: 'meta' },
+          'Page ' + (i + 1) + ' of ' + svgs.length));
+      }
+      preview.append(el('div', { class: 'ballot-preview', html: svg }));
+    });
   };
   drawPreview();
 
