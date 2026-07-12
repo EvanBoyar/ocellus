@@ -1,6 +1,6 @@
 // Home: list of elections, create new, import shared election string.
 
-import { el, clear } from './dom.js';
+import { el, clear, openTextFile } from './dom.js';
 import { listElections, saveEntry, deleteEntry } from '../storage.js';
 import { newElection, importElection, electionId } from '../model/election.js';
 import { groupCode } from '../model/codec.js';
@@ -69,34 +69,45 @@ export function renderHome(root) {
 
   const pasteBox = el('textarea', { placeholder: 'Paste an election string (OCEL1. ...)' });
   const msg = el('div');
+  const doImport = async (text) => {
+    const res = importElection(text);
+    clear(msg);
+    if (res.error) {
+      msg.append(el('div', { class: 'notice error' }, res.error));
+      return;
+    }
+    const eid = await electionId(res.election);
+    const existing = listElections().find((e) => e.eid === eid);
+    if (existing) {
+      msg.append(el('div', { class: 'notice info' }, 'You already have this exact election.'));
+      return;
+    }
+    const entry = {
+      id: uid(), election: res.election, nextSerial: 1,
+      createdAt: new Date().toISOString(), eid,
+    };
+    saveEntry(entry);
+    location.hash = '#/e/' + entry.id + '/design';
+  };
   root.append(el('div', { class: 'card', style: 'margin-top: 14px;' },
     el('h3', {}, 'Import an election'),
-    el('p', { class: 'meta' }, 'Another official can send you their election as a text string. Paste it here to get the exact same ballot design and keys.'),
+    el('p', { class: 'meta' },
+      'Another official can send you their election as a text string or a '
+      + 'file. Paste the string here, or open the file, to get the exact '
+      + 'same ballot design and keys.'),
     pasteBox,
     msg,
     el('div', { class: 'row', style: 'margin-top: 8px;' },
+      el('button', { onclick: () => doImport(pasteBox.value) }, 'Import'),
       el('button', {
+        class: 'btn-quiet',
         onclick: async () => {
-          const res = importElection(pasteBox.value);
-          clear(msg);
-          if (res.error) {
-            msg.append(el('div', { class: 'notice error' }, res.error));
-            return;
-          }
-          const eid = await electionId(res.election);
-          const existing = listElections().find((e) => e.eid === eid);
-          if (existing) {
-            msg.append(el('div', { class: 'notice info' }, 'You already have this exact election.'));
-            return;
-          }
-          const entry = {
-            id: uid(), election: res.election, nextSerial: 1,
-            createdAt: new Date().toISOString(), eid,
-          };
-          saveEntry(entry);
-          location.hash = '#/e/' + entry.id + '/design';
+          const text = await openTextFile();
+          if (text === null) return;
+          pasteBox.value = text.trim();
+          doImport(text);
         },
-      }, 'Import'),
+      }, 'Open file'),
     ),
   ));
 }

@@ -22,6 +22,34 @@ export function clear(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
 }
 
+// Downloads text as a file. Share strings with an embedded graphic or
+// a big scan count are too long for a Signal or SMS message, but ride
+// along fine as an attachment.
+export function saveTextFile(filename, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+  const a = el('a', { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// Opens a file picker and resolves with the chosen file's text, or
+// null if the picker closes without a choice being observed.
+export function openTextFile(accept) {
+  return new Promise((resolve) => {
+    const input = el('input', { type: 'file', accept: accept || '.txt,text/plain' });
+    input.style.display = 'none';
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      input.remove();
+      resolve(file ? await file.text() : null);
+    });
+    document.body.append(input);
+    input.click();
+  });
+}
+
 export async function copyText(text, feedbackBtn) {
   try {
     await navigator.clipboard.writeText(text);

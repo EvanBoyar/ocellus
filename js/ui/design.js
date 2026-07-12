@@ -1,6 +1,6 @@
 // Election designer: races, candidates, questions, and sharing.
 
-import { el, clear, copyText } from './dom.js';
+import { el, clear, copyText, saveTextFile } from './dom.js';
 import { navTabs } from '../app.js';
 import { addRace, addQuestion, exportElection, electionId, readyToPrint } from '../model/election.js';
 import { groupCode } from '../model/codec.js';
@@ -343,13 +343,23 @@ export async function renderDesign(root, ctx) {
     }, 'Add question'),
   );
 
-  // Sharing.
+  // Sharing. Strings past a couple thousand characters get cut off by
+  // Signal and SMS, so long elections (usually ones with a graphic)
+  // steer toward the file instead.
+  const MESSAGE_SAFE_LENGTH = 2000;
+  const tooLong = exportElection(e).length > MESSAGE_SAFE_LENGTH;
+  const slug = (e.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'untitled');
   const shareArea = el('textarea', { readonly: '', rows: 4 });
   const copyBtn = el('button', { class: 'btn-small' }, 'Copy');
   copyBtn.addEventListener('click', async () => {
     shareArea.value = exportElection(e);
     await copyText(shareArea.value, copyBtn);
   });
+  const saveBtn = el('button', {
+    class: tooLong ? 'btn-small' : 'btn-quiet btn-small',
+    onclick: () => saveTextFile('ocellus-election-' + slug + '.txt', exportElection(e)),
+  }, 'Save as file');
   const revealBtn = el('button', {
     class: 'btn-quiet btn-small',
     onclick: () => { shareArea.value = exportElection(e); },
@@ -358,10 +368,15 @@ export async function renderDesign(root, ctx) {
   root.append(el('div', { class: 'card', style: 'margin-top: 18px;' },
     el('h3', {}, 'Share this election'),
     el('p', { class: 'meta' },
-      'Send this string to the other officials (for example in a Signal chat). '
-      + 'It contains the full ballot design and the secret key, so only share it with people running the election.'),
+      'Send this to the other officials, as a pasted string or as a file '
+      + '(for example in a Signal chat). It contains the full ballot design '
+      + 'and the secret key, so only share it with people running the election.'),
+    tooLong ? el('div', { class: 'notice warn' },
+      'This election\'s string is too long for a Signal or SMS message, '
+      + 'which would cut it off. Send it as a file instead.') : null,
     shareArea,
-    el('div', { class: 'row', style: 'margin-top: 8px;' }, copyBtn, revealBtn),
+    el('div', { class: 'row', style: 'margin-top: 8px;' },
+      ...(tooLong ? [saveBtn, copyBtn, revealBtn] : [copyBtn, saveBtn, revealBtn])),
   ));
 
   if (readyToPrint(e)) {

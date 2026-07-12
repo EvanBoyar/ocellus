@@ -1,7 +1,7 @@
 // Results: tallies, winners, the Election Integrity Code, and
 // sharing scan data between officials.
 
-import { el, clear, copyText } from './dom.js';
+import { el, clear, copyText, saveTextFile, openTextFile } from './dom.js';
 import { navTabs } from '../app.js';
 import { tallySeats, tallyQuestion } from '../model/star.js';
 import { integrityCode } from '../model/eic.js';
@@ -97,20 +97,27 @@ export async function renderResults(root, ctx) {
     sumBtn,
   ));
 
-  // Share and merge scan data.
+  // Share and merge scan data. Big counts overflow what a Signal or
+  // SMS message can carry, so the file path sits beside copy/paste.
+  const MESSAGE_SAFE_LENGTH = 2000;
+  const tooLong = exportResults(session).length > MESSAGE_SAFE_LENGTH;
   const exportArea = el('textarea', { readonly: '', rows: 3 });
   const exportBtn = el('button', { class: 'btn-small' }, 'Copy my scan data');
   exportBtn.addEventListener('click', async () => {
     exportArea.value = exportResults(session);
     await copyText(exportArea.value, exportBtn);
   });
+  const saveBtn = el('button', {
+    class: tooLong ? 'btn-small' : 'btn-quiet btn-small',
+    onclick: () => saveTextFile(
+      'ocellus-scans-' + ctx.eid.toLowerCase() + '.txt', exportResults(session)),
+  }, 'Save as file');
 
   const importArea = el('textarea', { rows: 3, placeholder: 'Paste another official\'s scan data (OCSC1. ...)' });
   const importMsg = el('div');
-  const importBtn = el('button', { class: 'btn-small btn-coral' }, 'Merge into my data');
-  importBtn.addEventListener('click', () => {
+  const mergeText = (text) => {
     clear(importMsg);
-    const res = importResults(importArea.value);
+    const res = importResults(text);
     if (res.error) {
       importMsg.append(el('div', { class: 'notice error' }, res.error));
       return;
@@ -130,17 +137,32 @@ export async function renderResults(root, ctx) {
         + '. Those ballots kept your version; rescan them together to resolve.'));
     }
     setTimeout(() => { location.reload(); }, 1800);
-  });
+  };
+  const importBtn = el('button', { class: 'btn-small btn-coral' }, 'Merge into my data');
+  importBtn.addEventListener('click', () => mergeText(importArea.value));
+  const openBtn = el('button', {
+    class: 'btn-quiet btn-small',
+    onclick: async () => {
+      const text = await openTextFile();
+      if (text === null) return;
+      importArea.value = text.trim();
+      mergeText(text);
+    },
+  }, 'Open file');
 
   root.append(el('div', { class: 'card' },
     el('h3', {}, 'Share your work'),
     el('p', { class: 'meta' },
       'Several officials can each scan part of the ballots. Send your scan data to the tabulator '
-      + 'as a text string, and merge strings you receive into your own count.'),
+      + 'as a text string or a file, and merge what you receive into your own count.'),
+    tooLong ? el('div', { class: 'notice warn' },
+      'Your scan data is too long for a Signal or SMS message, which would '
+      + 'cut it off. Send it as a file instead.') : null,
     exportArea,
-    el('div', { class: 'row', style: 'margin: 8px 0 14px;' }, exportBtn),
+    el('div', { class: 'row', style: 'margin: 8px 0 14px;' },
+      ...(tooLong ? [saveBtn, exportBtn] : [exportBtn, saveBtn])),
     importArea,
-    el('div', { class: 'row', style: 'margin-top: 8px;' }, importBtn),
+    el('div', { class: 'row', style: 'margin-top: 8px;' }, importBtn, openBtn),
     importMsg,
   ));
 }

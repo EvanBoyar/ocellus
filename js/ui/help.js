@@ -28,7 +28,9 @@ export function renderHelp(root, goBack) {
     card('2. Bring in the other officials',
       'On the Design tab, copy the election string and send it to your other officials over any private '
       + 'channel, like a Signal group. Importing it gives them the exact same election, ballot design, and keys. '
-      + 'The string contains the secret key that makes ballots verifiable, so only share it with people '
+      + 'Long strings (for example when the ballot has a graphic) get cut off by messaging apps; send those '
+      + 'with Save as file instead, and import with Open file. '
+      + 'The election contains the secret key that makes ballots verifiable, so only share it with people '
       + 'running the election.'),
 
     card('3. Print ballots',
@@ -51,8 +53,8 @@ export function renderHelp(root, goBack) {
 
     card('6. Combine everyone\'s work',
       'Officials can split the stack and each scan a share. On the Results tab, copy your scan data string '
-      + 'and send it to whoever is tabulating; they merge it with one tap. Spoils carry across merges '
-      + 'automatically.'),
+      + 'and send it to whoever is tabulating; they merge it with one tap. Large scan counts are too long '
+      + 'for a message, so send those as a file. Spoils carry across merges automatically.'),
 
     card('7. Check the Election Integrity Code',
       'The Results tab shows the tallies, the outcome of each race and question, and the Election Integrity '
