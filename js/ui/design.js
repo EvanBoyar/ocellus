@@ -53,7 +53,13 @@ export async function renderDesign(root, ctx) {
 
   const idBadge = el('span', { class: 'pill gray' }, 'ID ' + groupCode(ctx.eid));
 
+  // Reassigned when the share card is built; every edit refreshes the
+  // too-long-for-a-message warning so adding a logo flips it on
+  // without leaving the screen.
+  let updateShare = () => {};
+
   const persist = () => {
+    updateShare();
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
       ctx.saveEntry();
@@ -347,9 +353,6 @@ export async function renderDesign(root, ctx) {
   // Signal and SMS, so long elections (usually ones with a graphic)
   // steer toward the file instead.
   const MESSAGE_SAFE_LENGTH = 2000;
-  const tooLong = exportElection(e).length > MESSAGE_SAFE_LENGTH;
-  const slug = (e.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '') || 'untitled');
   const shareArea = el('textarea', { readonly: '', rows: 4 });
   const copyBtn = el('button', { class: 'btn-small' }, 'Copy');
   copyBtn.addEventListener('click', async () => {
@@ -357,13 +360,29 @@ export async function renderDesign(root, ctx) {
     await copyText(shareArea.value, copyBtn);
   });
   const saveBtn = el('button', {
-    class: tooLong ? 'btn-small' : 'btn-quiet btn-small',
-    onclick: () => saveTextFile('ocellus-election-' + slug + '.txt', exportElection(e)),
+    class: 'btn-quiet btn-small',
+    onclick: () => {
+      const slug = (e.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '') || 'untitled');
+      saveTextFile('ocellus-election-' + slug + '.txt', exportElection(e));
+    },
   }, 'Save as file');
   const revealBtn = el('button', {
     class: 'btn-quiet btn-small',
     onclick: () => { shareArea.value = exportElection(e); },
   }, 'Show string');
+  const tooLongNotice = el('div', { class: 'notice warn' },
+    'This election\'s string is too long for a Signal or SMS message, '
+    + 'which would cut it off. Send it as a file instead.');
+  const shareRow = el('div', { class: 'row', style: 'margin-top: 8px;' });
+  updateShare = () => {
+    const long = exportElection(e).length > MESSAGE_SAFE_LENGTH;
+    tooLongNotice.style.display = long ? '' : 'none';
+    saveBtn.className = long ? 'btn-small' : 'btn-quiet btn-small';
+    // append moves existing nodes, so this reorders in place.
+    shareRow.append(...(long ? [saveBtn, copyBtn, revealBtn] : [copyBtn, saveBtn, revealBtn]));
+  };
+  updateShare();
 
   root.append(el('div', { class: 'card', style: 'margin-top: 18px;' },
     el('h3', {}, 'Share this election'),
@@ -371,12 +390,9 @@ export async function renderDesign(root, ctx) {
       'Send this to the other officials, as a pasted string or as a file '
       + '(for example in a Signal chat). It contains the full ballot design '
       + 'and the secret key, so only share it with people running the election.'),
-    tooLong ? el('div', { class: 'notice warn' },
-      'This election\'s string is too long for a Signal or SMS message, '
-      + 'which would cut it off. Send it as a file instead.') : null,
+    tooLongNotice,
     shareArea,
-    el('div', { class: 'row', style: 'margin-top: 8px;' },
-      ...(tooLong ? [saveBtn, copyBtn, revealBtn] : [copyBtn, saveBtn, revealBtn])),
+    shareRow,
   ));
 
   if (readyToPrint(e)) {
